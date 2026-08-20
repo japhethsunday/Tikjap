@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import os from "node:os";
 import type { ChatMessage, Role } from "@/lib/types";
 
 export interface UserRecord {
@@ -91,7 +92,14 @@ export interface DbData {
   preferences: PreferenceRecord[];
 }
 
-const DATA_DIR = path.join(process.cwd(), ".data");
+// Demo store location. On Vercel (and other serverless runtimes) the project
+// directory is read-only and ephemeral, so we write to the OS temp directory.
+// In demo mode this store is intentionally best-effort: data may reset on a
+// redeploy or cold start. Production deployments should point
+// NEXT_PUBLIC_API_BASE_URL at a real backend.
+const DATA_DIR = process.env.VERCEL === "1"
+  ? path.join(os.tmpdir(), "tikjap-data")
+  : path.join(process.cwd(), ".data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 
 export function uid(): string {
@@ -166,10 +174,15 @@ export async function getData(): Promise<DbData> {
 
 export async function persist(): Promise<void> {
   if (!data) return;
-  await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
-  const tmp = `${DB_FILE}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
-  await fs.rename(tmp, DB_FILE);
+  try {
+    await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
+    const tmp = `${DB_FILE}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
+    await fs.rename(tmp, DB_FILE);
+  } catch {
+    // Best-effort persistence: if the filesystem is unavailable (read-only
+    // serverless deployments), the demo continues fully in-memory.
+  }
 }
 
 /** Debounced persistence: mutations are batched across a short window. */
