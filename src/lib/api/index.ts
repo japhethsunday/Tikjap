@@ -11,7 +11,7 @@ import { createSettingsService } from "./services/settings";
 import { createPublicService } from "./services/public";
 
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "") ?? "/api/v1";
+  process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, "") || "/api/v1";
 
 let apiClient: ApiClient | undefined;
 
