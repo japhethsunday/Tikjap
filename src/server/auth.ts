@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "./supabase";
+import { createServerClient, createServiceClient } from "./supabase";
 import { HttpError } from "./errors";
 import { json, publicUser, requireUser, touchUserActivity, getSessionUser } from "./http";
 import { deleteAuthSessionsExcept, ensureProfile, getServerUser, iso, listAuthSessions } from "./store";
@@ -34,28 +34,49 @@ export async function handleSignup(request: Request): Promise<NextResponse> {
     throw new HttpError(400, "validation", "Password must be at least 8 characters.", { password: "Password must be at least 8 characters." });
   }
 
-  const supabase = await createServerClient();
-  const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { name } } });
-  if (error) {
-    if (/already registered|already exists/i.test(error.message)) {
-      throw new HttpError(409, "conflict", "An account with this email already exists.", { email: "An account with this email already exists." });
+  // Provision the account via the admin API so registration never depends on the
+  // shared confirmation-email quota (which rate-limits signups on the free tier).
+  // The user is created pre-confirmed, then signed in immediately below.
+  const admin = createServiceClient();
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { name },
+  });
+  if (createError) {
+    if (/already|exists|duplicate|registered/i.test(createError.message)) {
+      throw new HttpError(409, "conflict", "An account with this email already exists.", {
+        email: "An account with this email already exists.",
+      });
     }
-    console.error("[auth/signup]", error.message);
+    if (/rate\s*limit/i.test(createError.message)) {
+      throw new HttpError(429, "rate_limit", "Too many attempts right now. Please wait a minute and try again.");
+    }
+    console.error("[auth/signup]", createError.message);
     throw new HttpError(500, "internal", "Could not create your account. Please try again.");
   }
-  if (!data.user) {
+  if (!created.user) {
     throw new HttpError(500, "internal", "Could not create your account. Please try again.");
   }
 
-  if (data.session) {
-    // Session cookie is set automatically by the SSR client; profile comes from the DB trigger.
-    const user = await getServerUser(data.user.id, data.user.email ?? email);
-    await touchUserActivity(data.user.id).catch(() => undefined);
-    return json({ user: user ? publicUser(user) : null }, { status: 201 });
+  const supabase = await createServerClient();
+  const { data: signIn, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+  if (signInError || !signIn.user) {
+    // Account exists but session could not be established — treat like a fresh login.
+    throw new HttpError(401, "unauthorized", "Your account was created. Please sign in.", undefined);
   }
 
-  // Email confirmation is enabled for this project — the user must confirm before signing in.
-  return json({ user: null, requiresConfirmation: true }, { status: 201 });
+  const user = await getServerUser(signIn.user.id, signIn.user.email ?? email);
+  if (!user) {
+    await ensureProfile(signIn.user.id, displayNameFrom(signIn.user));
+    const retry = await getServerUser(signIn.user.id, signIn.user.email ?? email);
+    if (!retry) throw new HttpError(500, "internal", "Could not load your account.");
+    await touchUserActivity(retry.id);
+    return json({ user: publicUser(retry) }, { status: 201 });
+  }
+  await touchUserActivity(user.id).catch(() => undefined);
+  return json({ user: publicUser(user) }, { status: 201 });
 }
 
 export async function handleLogin(request: Request): Promise<NextResponse> {
