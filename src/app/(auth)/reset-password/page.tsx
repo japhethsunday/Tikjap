@@ -24,7 +24,7 @@ export default function ResetPasswordPage() {
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const token = searchParams.get("token") ?? "";
+  const code = searchParams.get("code") ?? "";
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<{ password?: string; confirmPassword?: string; form?: string }>({});
@@ -34,8 +34,8 @@ function ResetPasswordForm() {
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!token) {
-      setErrors({ form: "Missing reset token. Use the link from your email." });
+    if (!code) {
+      setErrors({ form: "Missing reset link. Use the link from your email." });
       return;
     }
     const validation = validateResetPassword({ password, confirmPassword });
@@ -46,7 +46,7 @@ function ResetPasswordForm() {
     setErrors({});
     setSubmitting(true);
     try {
-      await api.auth.resetPassword(token, password);
+      await api.auth.resetPassword(code, password);
       setDone(true);
     } catch (error) {
       setErrors({ form: errorMessage(error) });

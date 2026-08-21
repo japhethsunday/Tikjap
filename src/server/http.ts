@@ -1,24 +1,8 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { randomBytes } from "node:crypto";
-import { getData, sha256, sessionExpiry, nowISO, type SessionRecord, type UserRecord } from "./db";
+import { createServerClient } from "./supabase";
+import { HttpError } from "./errors";
+import { ensureProfile, getServerUser, touchProfileActivity, type ServerUser } from "./store";
 import type { ApiErrorCode } from "@/lib/api/errors";
-import { SESSION_COOKIE } from "@/lib/constants";
-import { isDemoMode } from "@/lib/env";
-
-export class HttpError extends Error {
-  readonly status: number;
-  readonly code: ApiErrorCode;
-  readonly details?: Record<string, string>;
-
-  constructor(status: number, code: ApiErrorCode, message: string, details?: Record<string, string>) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
 
 export function json<T>(payload: T, init: { status?: number; headers?: Record<string, string> } = {}): NextResponse {
   return NextResponse.json(payload, init);
@@ -42,22 +26,40 @@ export async function readJson<T>(request: Request): Promise<T> {
 }
 
 export interface SessionUser {
-  user: UserRecord;
-  session: SessionRecord;
+  user: ServerUser;
+  session: { sid?: string };
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const store = await getData();
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  const tokenHash = sha256(token);
-  const session = store.sessions.find((s) => s.tokenHash === tokenHash);
-  if (!session) return null;
-  if (new Date(session.expiresAt).getTime() < Date.now()) return null;
-  const user = store.users.find((u) => u.id === session.userId);
+  const supabase = await createServerClient();
+  const { data, error } = await supabase.auth.getUser();
+  const authUser = data.user;
+  if (error || !authUser) return null;
+
+  let user = await getServerUser(authUser.id, authUser.email ?? "");
+  if (!user) {
+    const name =
+      typeof authUser.user_metadata?.name === "string" && authUser.user_metadata.name.trim()
+        ? authUser.user_metadata.name.trim()
+        : (authUser.email?.split("@")[0] ?? "User");
+    await ensureProfile(authUser.id, name);
+    user = await getServerUser(authUser.id, authUser.email ?? "");
+  }
   if (!user) return null;
-  return { user, session };
+
+  let sid: string | undefined;
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (token) {
+      const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"));
+      sid = payload.sid;
+    }
+  } catch {
+    // Session id is only used to identify the current device.
+  }
+
+  return { user, session: { sid } };
 }
 
 export async function requireUser(): Promise<SessionUser> {
@@ -76,41 +78,7 @@ export async function requireAdmin(): Promise<SessionUser> {
   return sessionUser;
 }
 
-export function createSessionRecord(userId: string, meta?: { userAgent?: string; ip?: string }): { session: SessionRecord; rawToken: string } {
-  const rawToken = randomBytes(32).toString("hex");
-  const session: SessionRecord = {
-    tokenHash: sha256(rawToken),
-    userId,
-    createdAt: nowISO(),
-    expiresAt: sessionExpiry(),
-    userAgent: meta?.userAgent ?? undefined,
-    ip: meta?.ip ?? undefined,
-  };
-  return { session, rawToken };
-}
-
-export function setSessionCookie(response: NextResponse, rawToken: string, expiresAt: string): void {
-  // The cookie value carries the raw token; the store keeps only its hash.
-  response.cookies.set(SESSION_COOKIE, rawToken, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production" && !isDemoMode,
-    path: "/",
-    expires: new Date(expiresAt),
-  });
-}
-
-export function clearSessionCookie(response: NextResponse): void {
-  response.cookies.set(SESSION_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production" && !isDemoMode,
-    path: "/",
-    expires: new Date(0),
-  });
-}
-
-export function publicUser(user: UserRecord) {
+export function publicUser(user: ServerUser) {
   return {
     id: user.id,
     email: user.email,
@@ -122,9 +90,5 @@ export function publicUser(user: UserRecord) {
 }
 
 export async function touchUserActivity(userId: string): Promise<void> {
-  const store = await getData();
-  const user = store.users.find((u) => u.id === userId);
-  if (user) {
-    user.lastActiveAt = nowISO();
-  }
+  await touchProfileActivity(userId).catch(() => undefined);
 }

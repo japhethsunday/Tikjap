@@ -17,6 +17,7 @@ export default function SignupPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<{ name?: string; email?: string; password?: string; confirmPassword?: string; form?: string }>({});
   const [submitting, setSubmitting] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState(false);
 
   useEffect(() => {
     if (user) router.replace("/chat");
@@ -32,7 +33,11 @@ export default function SignupPage() {
     setErrors({});
     setSubmitting(true);
     try {
-      await signup({ name: name.trim(), email: email.trim(), password });
+      const result = await signup({ name: name.trim(), email: email.trim(), password });
+      if (!result.user) {
+        setPendingConfirmation(true);
+        return;
+      }
       router.replace("/chat");
     } catch (error) {
       setErrors({ form: errorMessage(error) });
@@ -40,6 +45,21 @@ export default function SignupPage() {
       setSubmitting(false);
     }
   };
+
+  if (pendingConfirmation) {
+    return (
+      <Card className="p-8 text-center">
+        <h1 className="text-xl font-semibold text-fg">Confirm your email</h1>
+        <p className="mt-2 text-sm text-muted">
+          We sent a confirmation link to <span className="font-medium text-fg">{email.trim()}</span>. Click it to finish
+          creating your account, then sign in.
+        </p>
+        <Link href="/login" className="mt-6 inline-block text-sm font-medium text-accent hover:underline">
+          Go to sign in →
+        </Link>
+      </Card>
+    );
+  }
 
   return (
     <Card className="p-8">

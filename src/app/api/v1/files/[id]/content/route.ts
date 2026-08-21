@@ -18,7 +18,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
-    const { HttpError, apiError } = await import("@/server/http");
+    const { HttpError } = await import("@/server/errors");
+    const { apiError } = await import("@/server/http");
     if (error instanceof HttpError) {
       return apiError(error.status, error.code, error.message);
     }

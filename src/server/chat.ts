@@ -1,105 +1,56 @@
-import { getData, persist, uid, nowISO, type ConversationRecord, type FileRecord, type UserRecord } from "./db";
-import { HttpError } from "./http";
+import { HttpError } from "./errors";
+import {
+  createConversation as storeCreateConversation,
+  deleteConversation as storeDeleteConversation,
+  deleteMessagesFrom,
+  getConversation as storeGetConversation,
+  getConversationRow,
+  getFile,
+  getLastUserMessage,
+  getMessageRow,
+  insertMessage,
+  listConversations as storeListConversations,
+  listMessages as storeListMessages,
+  renameConversation as storeRenameConversation,
+  uid,
+  updateConversation,
+  updateMessage,
+  type ConversationRow,
+  type ServerUser,
+} from "./store";
+import { createServiceClient } from "./supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModel, defaultModel } from "./models";
 import { assertWithinLimits, recordRequest, recordUsage } from "./usage";
 import { titleFromContent, formatBytes } from "@/lib/utils";
-import type { AIModel, AttachmentRef, ChatMessage, MessageUsage, StreamChunk } from "@/lib/types";
-
-export function publicConversation(record: ConversationRecord, messageCount: number) {
-  return {
-    id: record.id,
-    title: record.title,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    model: record.model,
-    messageCount,
-  };
-}
-
-function getConversationOrThrow(store: Awaited<ReturnType<typeof getData>>, userId: string, id: string): ConversationRecord {
-  const conversation = store.conversations.find((c) => c.id === id && c.userId === userId);
-  if (!conversation) throw new HttpError(404, "not_found", "Conversation not found.");
-  return conversation;
-}
-
-function getFileOrThrow(store: Awaited<ReturnType<typeof getData>>, userId: string, fileId: string): FileRecord {
-  const file = store.files.find((f) => f.id === fileId && f.userId === userId);
-  if (!file) throw new HttpError(404, "not_found", "Uploaded file not found.");
-  return file;
-}
-
-function messageCount(store: Awaited<ReturnType<typeof getData>>, conversationId: string): number {
-  return store.messages.filter((m) => m.conversationId === conversationId && m.role !== "system").length;
-}
-
-function sortMessages(messages: ChatMessage[]): ChatMessage[] {
-  return [...messages].sort((a, b) => {
-    const time = a.createdAt.localeCompare(b.createdAt);
-    return time !== 0 ? time : a.id.localeCompare(b.id);
-  });
-}
+import type { AIModel, AttachmentRef, MessageUsage, StreamChunk } from "@/lib/types";
 
 export async function listConversations(userId: string, query?: string) {
-  const store = await getData();
-  let conversations = store.conversations.filter((c) => c.userId === userId);
-  if (query?.trim()) {
-    const q = query.trim().toLowerCase();
-    conversations = conversations.filter((c) => c.title.toLowerCase().includes(q));
-  }
-  return conversations
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map((c) => publicConversation(c, messageCount(store, c.id)));
+  return storeListConversations(userId, query);
 }
 
 export async function createConversation(userId: string, input: { title?: string; modelId?: string }) {
-  const store = await getData();
-  const model = input.modelId ? getModel(input.modelId) : undefined;
-  const conversation: ConversationRecord = {
-    id: uid(),
-    userId,
-    title: input.title?.trim() ? input.title.trim().slice(0, 120) : "New chat",
-    model: model?.id ?? defaultModel().id,
-    createdAt: nowISO(),
-    updatedAt: nowISO(),
-  };
-  store.conversations.push(conversation);
-  await persist();
-  return publicConversation(conversation, 0);
+  return storeCreateConversation(userId, input);
 }
 
 export async function getConversation(userId: string, id: string) {
-  const store = await getData();
-  const conversation = getConversationOrThrow(store, userId, id);
-  return publicConversation(conversation, messageCount(store, id));
+  return storeGetConversation(userId, id);
 }
 
 export async function renameConversation(userId: string, id: string, title: string) {
-  const store = await getData();
-  const conversation = getConversationOrThrow(store, userId, id);
-  const cleaned = title.trim().slice(0, 120);
-  if (!cleaned) throw new HttpError(400, "validation", "Title cannot be empty.");
-  conversation.title = cleaned;
-  conversation.updatedAt = nowISO();
-  await persist();
-  return publicConversation(conversation, messageCount(store, id));
+  return storeRenameConversation(userId, id, title);
 }
 
 export async function deleteConversation(userId: string, id: string) {
-  const store = await getData();
-  getConversationOrThrow(store, userId, id);
-  store.conversations = store.conversations.filter((c) => !(c.id === id && c.userId === userId));
-  store.messages = store.messages.filter((m) => m.conversationId !== id);
-  await persist();
+  return storeDeleteConversation(userId, id);
 }
 
 export async function listMessages(userId: string, conversationId: string) {
-  const store = await getData();
-  getConversationOrThrow(store, userId, conversationId);
-  return sortMessages(store.messages.filter((m) => m.conversationId === conversationId));
+  return storeListMessages(userId, conversationId);
 }
 
 export interface GenerationParams {
-  user: UserRecord;
+  user: ServerUser;
   conversationId: string;
   content: string;
   modelId: string;
@@ -125,86 +76,73 @@ export function startGeneration(params: GenerationParams): GenerationResult {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const db = createServiceClient();
       const send = (chunk: StreamChunk) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
-      };
-      const store = await getData();
-      let conversation: ConversationRecord;
-      try {
-        conversation = getConversationOrThrow(store, user.id, conversationId);
-      } catch (error) {
         try {
-          send({ type: "error", error: messageOf(error) });
-          controller.close();
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
         } catch {
           // stream already closed
         }
-        return;
-      }
+      };
 
       let assistantMessageId: string | undefined;
       let promptText = content;
       let attachmentRefs: AttachmentRef[] = [];
+      let title: string | undefined;
+
       try {
+        let conversation: ConversationRow;
+        try {
+          conversation = await getConversationRow(user.id, conversationId, db);
+        } catch (error) {
+          send({ type: "error", error: messageOf(error) });
+          return;
+        }
+        title = conversation.title;
+
         await assertWithinLimits(user.id);
 
         if (params.removeFromMessageId) {
-          removeFromConversation(store, conversationId, params.removeFromMessageId);
+          await deleteMessagesFrom(conversationId, params.removeFromMessageId, db);
         }
 
         if (params.regenerateMessageId) {
-          const target = store.messages.find(
-            (m) => m.id === params.regenerateMessageId && m.conversationId === conversationId && m.role === "assistant"
-          );
-          if (!target) throw new HttpError(404, "not_found", "Message not found.");
-          const messages = store.messages;
-          const remaining: ChatMessage[] = [];
-          let removing = false;
-          for (const message of messages) {
-            if (message.id === params.regenerateMessageId) {
-              removing = true;
-              continue;
-            }
-            if (removing && message.conversationId === conversationId) continue;
-            remaining.push(message);
+          const target = await getMessageRow(conversationId, params.regenerateMessageId, db);
+          if (!target || target.role !== "assistant") {
+            throw new HttpError(404, "not_found", "Message not found.");
           }
-          store.messages = remaining;
-          const preceding = [...remaining].reverse().find((m) => m.conversationId === conversationId && m.role === "user");
+          await deleteMessagesFrom(conversationId, params.regenerateMessageId, db);
+          const preceding = await getLastUserMessage(conversationId, db);
           if (preceding) {
             promptText = preceding.content;
             attachmentRefs = preceding.attachments ?? [];
           }
         } else {
-          attachmentRefs = await resolveAttachments(store, user.id, params.attachmentIds);
-          store.messages.push({
-            id: uid(),
+          attachmentRefs = await resolveAttachments(user.id, params.attachmentIds, db);
+          await insertMessage(
             conversationId,
-            role: "user",
-            content,
-            status: "complete",
-            model: model.id,
-            attachments: attachmentRefs.length ? attachmentRefs : undefined,
-            createdAt: nowISO(),
-          });
+            {
+              role: "user",
+              content,
+              status: "complete",
+              model: model.id,
+              attachments: attachmentRefs.length ? attachmentRefs : undefined,
+            },
+            db
+          );
           if (conversation.title === "New chat") {
-            conversation.title = titleFromContent(content);
+            title = titleFromContent(content);
+            await updateConversation(conversationId, { title }, db);
           }
         }
 
-        assistantMessageId = uid();
-        const assistantMessage: ChatMessage = {
-          id: assistantMessageId,
+        const assistant = await insertMessage(
           conversationId,
-          role: "assistant",
-          content: "",
-          status: "streaming",
-          model: model.id,
-          createdAt: nowISO(),
-        };
-        store.messages.push(assistantMessage);
-        conversation.model = model.id;
-        conversation.updatedAt = nowISO();
-        await persist();
+          { role: "assistant", content: "", status: "streaming", model: model.id },
+          db
+        );
+        assistantMessageId = assistant.id;
+        await updateConversation(conversationId, { model: model.id }, db);
 
         const fullText = buildDemoResponse(promptText, model, attachmentRefs, params.regenerateMessageId !== undefined);
         const tokens = fullText.match(/\S+\s*/g) ?? [fullText];
@@ -221,37 +159,23 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         }
 
         if (!signal?.aborted) {
-          assistantMessage.content = fullText;
-          assistantMessage.status = "complete";
-          assistantMessage.usage = usage;
-          await persist();
+          await updateMessage(assistantMessageId, { content: fullText, status: "complete", usage }, db);
           await recordUsage(user.id, usage, params.regenerateMessageId ? 0 : 1);
           await recordRequest(user.id, model.id, usage, true);
-          await persist();
           send({ type: "usage", usage });
-          send({ type: "done", messageId: assistantMessageId, title: conversation.title });
+          send({ type: "done", messageId: assistantMessageId, title });
         } else {
-          assistantMessage.content = sentText;
-          assistantMessage.status = "stopped";
-          await persist();
-          send({ type: "done", messageId: assistantMessageId, title: conversation.title, status: "stopped" });
-        }
-        try {
-          controller.close();
-        } catch {
-          // stream already closed by the client
+          await updateMessage(assistantMessageId, { content: sentText, status: "stopped" }, db);
+          send({ type: "done", messageId: assistantMessageId, title, status: "stopped" });
         }
       } catch (error) {
         if (assistantMessageId) {
-          const stored = store.messages.find((m) => m.id === assistantMessageId);
-          if (stored) {
-            stored.status = "error";
-            await persist();
-          }
+          await updateMessage(assistantMessageId, { status: "error" }, db).catch(() => undefined);
         }
         await recordRequest(user.id, model.id, { inputTokens: estimateTokens(promptText), outputTokens: 0 }, false).catch(() => undefined);
+        send({ type: "error", error: messageOf(error) });
+      } finally {
         try {
-          send({ type: "error", error: messageOf(error) });
           controller.close();
         } catch {
           // stream already closed by the client
@@ -263,37 +187,14 @@ export function startGeneration(params: GenerationParams): GenerationResult {
   return { stream, assistantMessageId: uid() };
 }
 
-async function resolveAttachments(
-  store: Awaited<ReturnType<typeof getData>>,
-  userId: string,
-  attachmentIds?: string[]
-): Promise<AttachmentRef[]> {
+async function resolveAttachments(userId: string, attachmentIds?: string[], db: SupabaseClient = createServiceClient()): Promise<AttachmentRef[]> {
   if (!attachmentIds?.length) return [];
   const refs: AttachmentRef[] = [];
   for (const fileId of attachmentIds) {
-    const file = getFileOrThrow(store, userId, fileId);
-    refs.push({ fileId: file.id, name: file.name, size: file.size, mimeType: file.mimeType });
+    const file = await getFile(userId, fileId, db);
+    refs.push({ fileId: file.id, name: file.name, size: file.size, mimeType: file.mime_type });
   }
   return refs;
-}
-
-function removeFromConversation(
-  store: Awaited<ReturnType<typeof getData>>,
-  conversationId: string,
-  messageId: string
-): void {
-  const messages = store.messages;
-  const remaining: ChatMessage[] = [];
-  let removing = false;
-  for (const message of messages) {
-    if (message.id === messageId) {
-      removing = true;
-      continue;
-    }
-    if (removing && message.conversationId === conversationId) continue;
-    remaining.push(message);
-  }
-  store.messages = remaining;
 }
 
 function messageOf(error: unknown): string {
@@ -341,13 +242,12 @@ function buildDemoResponse(prompt: string, model: AIModel, attachments: Attachme
     "**Typed everywhere** — the frontend and backend share strict TypeScript contracts.",
   ];
 
-  const codeSample =
-    model.capabilities.toolUse
-      ? `async function answer(query: string) {
+  const codeSample = model.capabilities.toolUse
+    ? `async function answer(query: string) {
   const result = await think(query);
   return result.reply; // streamed to the UI
 }`
-      : `function hello(name: string): string {
+    : `function hello(name: string): string {
   return \`Hello, \${name}!\`;
 }
 

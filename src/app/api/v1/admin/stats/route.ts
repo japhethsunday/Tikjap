@@ -1,7 +1,7 @@
 import { withHandler } from "@/server/handler";
 import { requireAdmin } from "@/server/http";
 import { adminMetrics } from "@/server/usage";
-import { nowISO } from "@/server/db";
+import { nowISO } from "@/server/store";
 
 export async function GET() {
   return withHandler(async () => {

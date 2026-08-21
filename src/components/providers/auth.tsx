@@ -15,7 +15,7 @@ interface AuthContextValue {
   user: User | null;
   status: "loading" | "authenticated" | "unauthenticated";
   login: (input: LoginInput) => Promise<User>;
-  signup: (input: SignupInput) => Promise<User>;
+  signup: (input: SignupInput) => Promise<{ user: User | null; requiresConfirmation?: boolean }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -59,10 +59,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signup = useCallback(async (input: SignupInput) => {
-    const { user: created } = await api.auth.signup(input);
-    setUser(created);
-    setStatus("authenticated");
-    return created;
+    const result = await api.auth.signup(input);
+    if (result.user) {
+      setUser(result.user);
+      setStatus("authenticated");
+    }
+    return result;
   }, []);
 
   const logout = useCallback(async () => {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser, readJson, HttpError } from "@/server/http";
+import { requireUser, readJson } from "@/server/http";
+import { HttpError } from "@/server/errors";
 import { withHandler } from "@/server/handler";
 import { listMessages, startGeneration } from "@/server/chat";
 import type { ChatRequest } from "@/lib/types";

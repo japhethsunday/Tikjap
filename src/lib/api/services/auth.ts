@@ -3,7 +3,7 @@ import type { LoginInput, SignupInput, SessionInfo, User } from "../../types";
 
 export function createAuthService(client: ApiClient) {
   return {
-    signup(input: SignupInput): Promise<{ user: User }> {
+    signup(input: SignupInput): Promise<{ user: User | null; requiresConfirmation?: boolean }> {
       return client.post("/auth/signup", input);
     },
     login(input: LoginInput): Promise<{ user: User }> {
@@ -21,11 +21,11 @@ export function createAuthService(client: ApiClient) {
     logoutOthers(): Promise<{ sessions: SessionInfo[] }> {
       return client.post("/auth/logout-others");
     },
-    forgotPassword(email: string): Promise<{ sent: boolean; demoResetToken?: string }> {
+    forgotPassword(email: string): Promise<{ sent: boolean }> {
       return client.post("/auth/forgot-password", { email });
     },
-    resetPassword(token: string, password: string): Promise<{ ok: true }> {
-      return client.post("/auth/reset-password", { token, password });
+    resetPassword(code: string, password: string): Promise<{ ok: true }> {
+      return client.post("/auth/reset-password", { code, password });
     },
     changePassword(currentPassword: string, newPassword: string): Promise<{ ok: true }> {
       return client.put("/auth/password", { currentPassword, newPassword });

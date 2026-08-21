@@ -47,8 +47,6 @@ export function isImageFile(name: string): boolean {
   return (IMAGE_EXTENSIONS as readonly string[]).includes(getFileExtension(name));
 }
 
-export const SESSION_COOKIE = "tk_session";
-
 export const THEME_STORAGE_KEY = "tk-theme";
 
 export const DEMO_PLANS = [

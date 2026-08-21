@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { HttpError, apiError } from "./http";
+import { HttpError } from "./errors";
+import { apiError } from "./http";
 
 type Handler<T = unknown> = () => Promise<T> | T;
 

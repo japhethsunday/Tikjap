@@ -12,7 +12,6 @@ export default function ForgotPasswordPage() {
   const [errors, setErrors] = useState<{ email?: string; form?: string }>({});
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
-  const [resetToken, setResetToken] = useState<string>();
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -24,8 +23,7 @@ export default function ForgotPasswordPage() {
     setErrors({});
     setSubmitting(true);
     try {
-      const result = await api.auth.forgotPassword(email.trim());
-      if (result.demoResetToken) setResetToken(result.demoResetToken);
+      await api.auth.forgotPassword(email.trim());
       setSent(true);
     } catch (error) {
       setErrors({ form: errorMessage(error) });
@@ -42,21 +40,6 @@ export default function ForgotPasswordPage() {
           If an account exists for <span className="font-medium text-fg">{email}</span>, a password reset link has been
           sent. It expires in 1 hour.
         </p>
-        {resetToken ? (
-          <div className="mt-5 rounded-lg border border-dashed border-accent/40 bg-accent/5 p-4 text-left">
-            <p className="text-xs font-medium uppercase tracking-wide text-accent">Demo mode</p>
-            <p className="mt-1.5 text-sm text-fg">Use this one-time reset token:</p>
-            <code className="mt-1 block break-all rounded bg-surface px-2 py-1.5 font-mono text-xs text-fg">
-              {resetToken}
-            </code>
-            <Link
-              href={`/reset-password?token=${encodeURIComponent(resetToken)}`}
-              className="mt-3 inline-block text-sm font-medium text-accent hover:underline"
-            >
-              Continue to reset →
-            </Link>
-          </div>
-        ) : null}
         <Link href="/login" className="mt-6 inline-block text-sm text-muted hover:text-fg">
           Back to sign in
         </Link>
