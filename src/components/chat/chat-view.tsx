@@ -2,9 +2,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { useConversation, useCreateConversation, useDeleteConversation, useRenameConversation, toErrorMessage } from "@/hooks/use-conversations";
+import { Archive, ArchiveRestore, Bot, Download, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import {
+  useConversation,
+  useCreateConversation,
+  useDeleteConversation,
+  useRenameConversation,
+  useUpdateConversation,
+  toErrorMessage,
+} from "@/hooks/use-conversations";
 import { useModels, useMessages, useAiPreferences } from "@/hooks/use-models";
+import { useAssistants } from "@/hooks/use-platform";
 import { useChat } from "@/hooks/use-chat";
 import { useAuth } from "@/components/providers/auth";
 import { useToast } from "@/components/providers/toast";
@@ -29,11 +37,15 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
   const createConversation = useCreateConversation();
   const deleteConversation = useDeleteConversation();
   const renameConversation = useRenameConversation();
+  const updateConversation = useUpdateConversation();
+  const { data: assistantsData } = useAssistants();
+  const assistants = assistantsData?.assistants ?? [];
 
   const models = modelsData?.models ?? [];
   const defaultModelId = preferences?.preferences.defaultModelId ?? models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "";
   const [modelId, setModelId] = useState(defaultModelId);
   const effectiveModelId = modelId || defaultModelId;
+  const [assistantId, setAssistantId] = useState<string | undefined>(undefined);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -47,6 +59,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
     isLoadingMessages,
     modelId: effectiveModelId,
     streamingEnabled: preferences?.preferences.streamingEnabled ?? true,
+    assistantId,
   });
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -93,13 +106,78 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
           <p className="truncate text-sm font-medium text-fg">{conversation?.conversation.title ?? "New chat"}</p>
         </div>
         <ModelSelect models={models} value={effectiveModelId} onChange={setModelId} loading={modelsData === undefined} />
+        {assistants.length > 0 ? (
+          <Dropdown
+            trigger={({ ref, toggle, "aria-expanded": expanded }) => (
+              <button
+                ref={ref}
+                type="button"
+                aria-expanded={expanded}
+                aria-label="Select assistant"
+                onClick={toggle}
+                className={
+                  assistantId
+                    ? "rounded-lg p-2 text-accent transition-colors hover:bg-surface"
+                    : "rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg"
+                }
+              >
+                <Bot className="h-5 w-5" aria-hidden />
+              </button>
+            )}
+          >
+            {({ close }) => (
+              <>
+                <DropdownItem
+                  onSelect={() => {
+                    setAssistantId(undefined);
+                    close();
+                  }}
+                >
+                  No assistant
+                </DropdownItem>
+                {assistants.map((assistant) => (
+                  <DropdownItem
+                    key={assistant.id}
+                    onSelect={() => {
+                      setAssistantId(assistant.id);
+                      close();
+                    }}
+                  >
+                    {assistant.name}
+                  </DropdownItem>
+                ))}
+              </>
+            )}
+          </Dropdown>
+        ) : null}
         {conversationId && conversation ? (
           <ConversationMenu
+            conversation={conversation.conversation}
             onRename={() => {
               setRenameValue(conversation.conversation.title);
               setRenameOpen(true);
             }}
             onDelete={handleDelete}
+            onTogglePin={() =>
+              updateConversation.mutate(
+                { id: conversationId, pinned: !conversation.conversation.pinned },
+                {
+                  onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
+                }
+              )
+            }
+            onToggleArchive={() =>
+              updateConversation.mutate(
+                { id: conversationId, archived: !conversation.conversation.archived },
+                {
+                  onSuccess: () => {
+                    if (!conversation.conversation.archived) router.replace("/chat");
+                  },
+                  onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
+                }
+              )
+            }
+            onExport={() => handleExport(conversation.conversation.title, chat.visibleMessages)}
           />
         ) : null}
       </header>
@@ -194,6 +272,21 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
       },
     });
   }
+
+  function handleExport(title: string, messages: { role: string; content: string }[]) {
+    const lines = [`# ${title}`, ""];
+    for (const message of messages) {
+      const label = message.role === "user" ? "You" : message.role === "assistant" ? "Tikjap AI" : message.role;
+      lines.push(`**${label}:**`, "", message.content, "");
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "conversation"}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 }
 
 function useShowTimestamps(): { showTimestamps: boolean } {
@@ -201,7 +294,21 @@ function useShowTimestamps(): { showTimestamps: boolean } {
   return { showTimestamps: data?.preferences.showTimestamps ?? true };
 }
 
-function ConversationMenu({ onRename, onDelete }: { onRename: () => void; onDelete: () => void }) {
+function ConversationMenu({
+  conversation,
+  onRename,
+  onDelete,
+  onTogglePin,
+  onToggleArchive,
+  onExport,
+}: {
+  conversation: { pinned?: boolean; archived?: boolean };
+  onRename: () => void;
+  onDelete: () => void;
+  onTogglePin: () => void;
+  onToggleArchive: () => void;
+  onExport: () => void;
+}) {
   return (
     <Dropdown
       trigger={({ ref, toggle, "aria-expanded": expanded }) => (
@@ -227,6 +334,33 @@ function ConversationMenu({ onRename, onDelete }: { onRename: () => void; onDele
             }}
           >
             Rename
+          </DropdownItem>
+          <DropdownItem
+            icon={conversation.pinned ? <PinOff className="h-4 w-4" aria-hidden /> : <Pin className="h-4 w-4" aria-hidden />}
+            onSelect={() => {
+              close();
+              onTogglePin();
+            }}
+          >
+            {conversation.pinned ? "Unpin" : "Pin to top"}
+          </DropdownItem>
+          <DropdownItem
+            icon={conversation.archived ? <ArchiveRestore className="h-4 w-4" aria-hidden /> : <Archive className="h-4 w-4" aria-hidden />}
+            onSelect={() => {
+              close();
+              onToggleArchive();
+            }}
+          >
+            {conversation.archived ? "Unarchive" : "Archive"}
+          </DropdownItem>
+          <DropdownItem
+            icon={<Download className="h-4 w-4" aria-hidden />}
+            onSelect={() => {
+              close();
+              onExport();
+            }}
+          >
+            Export as Markdown
           </DropdownItem>
           <DropdownItem
             icon={<Trash2 className="h-4 w-4" aria-hidden />}

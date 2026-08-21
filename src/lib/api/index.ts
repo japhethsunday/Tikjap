@@ -9,6 +9,12 @@ import { createUsageService } from "./services/usage";
 import { createAdminService } from "./services/admin";
 import { createSettingsService } from "./services/settings";
 import { createPublicService } from "./services/public";
+import {
+  createProjectsService,
+  createMemoriesService,
+  createAssistantsService,
+  createPromptsService,
+} from "./services/platform";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.trim().replace(/\/+$/, "") || "/api/v1";
@@ -43,6 +49,10 @@ export const api = {
   admin: createAdminService(getApiClient()),
   settings: createSettingsService(getApiClient()),
   public: createPublicService(getApiClient()),
+  projects: createProjectsService(getApiClient()),
+  memories: createMemoriesService(getApiClient()),
+  assistants: createAssistantsService(getApiClient()),
+  prompts: createPromptsService(getApiClient()),
 };
 
 export type Api = typeof api;

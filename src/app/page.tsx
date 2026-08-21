@@ -103,7 +103,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {info?.billingEnabled || true ? (
+      {info?.billingEnabled !== false ? (
         <section className="mx-auto max-w-6xl px-4 pb-24 sm:px-6" aria-label="Pricing">
           <h2 className="text-center text-2xl font-bold text-fg">Simple pricing</h2>
           <p className="mt-2 text-center text-muted">Start free, upgrade when you&apos;re ready.</p>

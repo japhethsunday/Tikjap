@@ -2,13 +2,22 @@
 
 import { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquarePlus, Search, Settings, Shield, X } from "lucide-react";
+import { Folder, FolderOpen, MessageSquarePlus, Pin, Search, Settings, Shield, X } from "lucide-react";
 import { useAuth } from "@/components/providers/auth";
 import { useConversations } from "@/hooks/use-conversations";
+import { useProjects } from "@/hooks/use-platform";
 import { Avatar } from "@/components/ui/avatar";
 import { Spinner } from "@/components/ui/primitives";
 import { Dropdown, DropdownItem } from "@/components/ui/overlays";
 import { timeAgo, cn, debounce } from "@/lib/utils";
+
+type SidebarView = "all" | "pinned" | "archived";
+
+const VIEWS: { id: SidebarView; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "pinned", label: "Pinned" },
+  { id: "archived", label: "Archived" },
+];
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
@@ -16,12 +25,21 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
   const { user, logout } = useAuth();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [view, setView] = useState<SidebarView>("all");
+  const [projectId, setProjectId] = useState<string | undefined>(undefined);
   const searchQuery = query ? debouncedQuery : "";
-  const { conversations, isLoading } = useConversations(searchQuery || undefined);
+  const { data: projectsData } = useProjects();
+  const projects = projectsData?.projects ?? [];
+  const { conversations, isLoading } = useConversations({
+    query: searchQuery || undefined,
+    filter: view === "all" ? undefined : view,
+    projectId,
+  });
 
   const updateQuery = useMemo(() => debounce(setDebouncedQuery, 250), []);
 
   const activeId = pathname.startsWith("/chat/") ? pathname.split("/")[2] : undefined;
+  const activeProject = projects?.find((project) => project.id === projectId);
 
   const go = (path: string) => {
     router.push(path);
@@ -96,13 +114,70 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          <div className="mb-2 flex gap-1" role="tablist" aria-label="Conversation filters">
+            {VIEWS.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                role="tab"
+                aria-selected={view === entry.id}
+                onClick={() => setView(entry.id)}
+                className={cn(
+                  "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
+                  view === entry.id ? "bg-elevated text-fg ring-1 ring-line" : "text-muted hover:bg-elevated/60 hover:text-fg"
+                )}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </div>
+
+          {projects && projects.length > 0 ? (
+            <div className="mb-3">
+              <div className="flex flex-wrap gap-1">
+                {projectId ? (
+                  <button
+                    type="button"
+                    onClick={() => setProjectId(undefined)}
+                    className="inline-flex items-center gap-1 rounded-full bg-accent/15 px-2.5 py-1 text-[11px] font-medium text-accent ring-1 ring-accent/30"
+                  >
+                    <FolderOpen className="h-3 w-3" aria-hidden />
+                    {activeProject?.name ?? "Project"}
+                    <X className="h-3 w-3" aria-hidden />
+                  </button>
+                ) : (
+                  projects.slice(0, 6).map((project) => (
+                    <button
+                      key={project.id}
+                      type="button"
+                      onClick={() => setProjectId(project.id)}
+                      title={project.name}
+                      className="inline-flex max-w-36 items-center gap-1 rounded-full border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-elevated hover:text-fg"
+                    >
+                      <Folder className="h-3 w-3 shrink-0" aria-hidden />
+                      <span className="truncate">{project.name}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : null}
+
           {isLoading ? (
             <div className="flex justify-center py-8">
               <Spinner />
             </div>
           ) : conversations.length === 0 ? (
             <p className="px-2 py-8 text-center text-xs text-muted">
-              {debouncedQuery ? "No conversations match your search." : "No conversations yet. Start a new chat!"}
+              {debouncedQuery
+                ? "No conversations match your search."
+                : view === "archived"
+                  ? "No archived conversations."
+                  : view === "pinned"
+                    ? "Pin conversations to find them here."
+                    : projectId
+                      ? "No conversations in this project yet."
+                      : "No conversations yet. Start a new chat!"}
             </p>
           ) : (
             <ul className="space-y-0.5">
@@ -122,7 +197,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                         active ? "bg-elevated shadow-sm ring-1 ring-line" : "hover:bg-elevated/60"
                       )}
                     >
-                      <p className="truncate text-sm font-medium text-fg">{conversation.title}</p>
+                      <p className="flex items-center gap-1.5 truncate text-sm font-medium text-fg">
+                        {conversation.pinned ? <Pin className="h-3 w-3 shrink-0 text-accent" aria-hidden /> : null}
+                        <span className="truncate">{conversation.title}</span>
+                      </p>
                       <p className="mt-0.5 text-[11px] text-muted">
                         {conversation.messageCount} message{conversation.messageCount === 1 ? "" : "s"} • {timeAgo(conversation.updatedAt)}
                       </p>

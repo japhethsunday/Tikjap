@@ -28,6 +28,7 @@ export interface UseChatOptions {
   isLoadingMessages: boolean;
   modelId: string;
   streamingEnabled: boolean;
+  assistantId?: string;
 }
 
 export interface UseChatResult {
@@ -42,7 +43,7 @@ export interface UseChatResult {
   stop: () => void;
 }
 
-export function useChat({ conversationId, messages, modelId, streamingEnabled }: UseChatOptions): UseChatResult {
+export function useChat({ conversationId, messages, modelId, streamingEnabled, assistantId }: UseChatOptions): UseChatResult {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<ChatMessage[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -89,9 +90,9 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled }:
             createdAt: new Date().toISOString(),
           };
 
-      const assistantId = localId("assistant");
+      const streamAssistantId = localId("assistant");
       const assistantMessage: ChatMessage = {
-        id: assistantId,
+        id: streamAssistantId,
         conversationId,
         role: "assistant",
         content: "",
@@ -126,6 +127,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled }:
             regenerate: Boolean(request.regenerateMessageId),
             regenerateMessageId: request.regenerateMessageId,
             removeFromMessageId: request.removeFromMessageId,
+            assistantId,
           },
           { signal: controller.signal }
         );
@@ -136,13 +138,13 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled }:
 
         if (controller.signal.aborted) {
           setPending((current) =>
-            current.map((m) => (m.id === assistantId ? { ...m, status: "stopped", content: accumulated } : m))
+            current.map((m) => (m.id === streamAssistantId ? { ...m, status: "stopped", content: accumulated } : m))
           );
           setStatus("idle");
         } else {
           setPending((current) =>
             current.map((m) =>
-              m.id === assistantId
+              m.id === streamAssistantId
                 ? { ...m, status: (accumulated ? "complete" : "error") as MessageStatus, content: accumulated }
                 : m
             )
@@ -154,12 +156,12 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled }:
         if (controller.signal.aborted) {
           // User stopped generation; finalize as stopped.
           setPending((current) =>
-            current.map((m) => (m.id === assistantId ? { ...m, status: "stopped", content: accumulated } : m))
+            current.map((m) => (m.id === streamAssistantId ? { ...m, status: "stopped", content: accumulated } : m))
           );
         } else {
           const message = errorMessage(streamError);
           setPending((current) =>
-            current.map((m) => (m.id === assistantId ? { ...m, status: "error", content: accumulated } : m))
+            current.map((m) => (m.id === streamAssistantId ? { ...m, status: "error", content: accumulated } : m))
           );
           setError(message);
           setStatus("error");
@@ -174,32 +176,32 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled }:
           accumulated += chunk.content ?? "";
           if (streamingEnabled) {
             setPending((current) =>
-              current.map((m) => (m.id === assistantId ? { ...m, content: accumulated } : m))
+              current.map((m) => (m.id === streamAssistantId ? { ...m, content: accumulated } : m))
             );
           }
         } else if (chunk.type === "usage" && chunk.usage) {
           setPending((current) =>
-            current.map((m) => (m.id === assistantId ? { ...m, usage: chunk.usage } : m))
+            current.map((m) => (m.id === streamAssistantId ? { ...m, usage: chunk.usage } : m))
           );
         } else if (chunk.type === "done") {
           const finalStatus: MessageStatus = chunk.status ?? "complete";
           setPending((current) =>
             current.map((m) =>
-              m.id === assistantId ? { ...m, status: finalStatus, content: accumulated } : m
+              m.id === streamAssistantId ? { ...m, status: finalStatus, content: accumulated } : m
             )
           );
           setStatus("idle");
           invalidate();
         } else if (chunk.type === "error") {
           setPending((current) =>
-            current.map((m) => (m.id === assistantId ? { ...m, status: "error" } : m))
+            current.map((m) => (m.id === streamAssistantId ? { ...m, status: "error" } : m))
           );
           setError(chunk.error ?? "Something went wrong.");
           setStatus("error");
         }
       }
     },
-    [conversationId, modelId, streamingEnabled, invalidate]
+    [conversationId, modelId, streamingEnabled, assistantId, invalidate]
   );
 
   const send = useCallback(

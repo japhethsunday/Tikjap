@@ -84,6 +84,7 @@ export function publicUser(user: ServerUser) {
     email: user.email,
     name: user.name,
     role: user.role,
+    plan: user.plan,
     avatarUrl: user.avatarUrl,
     createdAt: user.createdAt,
   };

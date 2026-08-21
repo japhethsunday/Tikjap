@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceClient } from "./supabase";
 import { HttpError } from "./errors";
+import { getModel, defaultModel as defaultModelId } from "./models";
 import type { AttachmentRef, ChatMessage, MessageUsage } from "@/lib/types";
 
 type Db = SupabaseClient;
@@ -9,6 +10,7 @@ export interface ProfileRow {
   id: string;
   name: string;
   role: "user" | "admin";
+  plan?: string;
   avatar_url: string | null;
   created_at: string;
   last_active_at: string;
@@ -24,6 +26,7 @@ export interface ServerUser {
   email: string;
   name: string;
   role: "user" | "admin";
+  plan?: PlanId;
   avatarUrl: string | null;
   createdAt: string;
   lastActiveAt: string;
@@ -46,8 +49,46 @@ export interface ConversationRow {
   user_id: string;
   title: string;
   model: string;
+  project_id: string | null;
+  pinned: boolean;
+  archived: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectRow {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryRow {
+  id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+}
+
+export interface AssistantRow {
+  id: string;
+  user_id: string;
+  name: string;
+  instructions: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedPromptRow {
+  id: string;
+  user_id: string;
+  title: string;
+  body: string;
+  created_at: string;
 }
 
 export interface FileRow {
@@ -80,6 +121,7 @@ function profileToUser(row: ProfileRow, email: string): ServerUser {
     email,
     name: row.name,
     role: row.role,
+    plan: row.plan === "pro" || row.plan === "team" ? row.plan : "free",
     avatarUrl: row.avatar_url,
     createdAt: iso(row.created_at),
     lastActiveAt: iso(row.last_active_at),
@@ -107,6 +149,9 @@ function rowToConversation(row: ConversationRow, messageCount: number) {
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     model: row.model,
+    projectId: row.project_id ?? undefined,
+    pinned: row.pinned,
+    archived: row.archived,
     messageCount,
   };
 }
@@ -177,27 +222,73 @@ export async function updateProfilePrefs(
 // Conversations
 // ---------------------------------------------------------------------------
 
-export async function listConversations(userId: string, query?: string) {
+export interface ListConversationsOptions {
+  query?: string;
+  projectId?: string;
+  pinnedOnly?: boolean;
+  archivedOnly?: boolean;
+}
+
+export async function listConversations(userId: string, options: ListConversationsOptions = {}) {
   const db = createServiceClient();
   let builder = db.from("conversations").select("*").eq("user_id", userId).order("updated_at", { ascending: false });
-  if (query?.trim()) {
-    builder = builder.ilike("title", `%${query.trim()}%`);
+  if (options.query?.trim()) {
+    builder = builder.ilike("title", `%${options.query.trim()}%`);
+  }
+  if (options.projectId) {
+    builder = builder.eq("project_id", options.projectId);
+  }
+  if (options.pinnedOnly) {
+    builder = builder.eq("pinned", true);
+  } else if (options.archivedOnly) {
+    builder = builder.eq("archived", true);
+  } else {
+    builder = builder.eq("archived", false);
   }
   const { data, error } = await builder;
   if (error) throw new Error(`Failed to list conversations: ${error.message}`);
   const rows = (data ?? []) as unknown as ConversationRow[];
-  const counts = await Promise.all(rows.map((row) => messageCountFor(row.id, db)));
-  return rows.map((row, index) => rowToConversation(row, counts[index]));
+  const counts = await messageCountsFor(userId, rows.map((row) => row.id), db);
+  return rows.map((row) => rowToConversation(row, counts.get(row.id) ?? 0));
 }
 
-export async function createConversation(userId: string, input: { title?: string; modelId?: string }) {
+/** Batched message counts for a set of conversations (avoids N+1 queries). */
+async function messageCountsFor(
+  userId: string,
+  conversationIds: string[],
+  db: Db
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (!conversationIds.length) return counts;
+  const owned = new Set(conversationIds);
+  const { data, error } = await db
+    .from("conversations")
+    .select("id, messages(count)")
+    .eq("user_id", userId)
+    .in("id", conversationIds);
+  if (error) throw new Error(`Failed to count messages: ${error.message}`);
+  for (const row of (data ?? []) as unknown as Array<{ id: string; messages: Array<{ count: number }> }>) {
+    if (!owned.has(row.id)) continue;
+    counts.set(row.id, row.messages?.[0]?.count ?? 0);
+  }
+  return counts;
+}
+
+export async function createConversation(
+  userId: string,
+  input: { title?: string; modelId?: string; projectId?: string }
+) {
   const db = createServiceClient();
+  if (input.projectId) {
+    await getProject(userId, input.projectId, db);
+  }
   const { data, error } = await db
     .from("conversations")
     .insert({
       user_id: userId,
       title: input.title?.trim() ? input.title.trim().slice(0, 120) : "New chat",
       model: input.modelId ?? "tikja-1",
+      project_id: input.projectId ?? null,
     })
     .select("*")
     .single();
@@ -219,20 +310,41 @@ export async function getConversation(userId: string, id: string): Promise<Retur
   return rowToConversation(row, count);
 }
 
-export async function renameConversation(userId: string, id: string, title: string) {
-  const cleaned = title.trim().slice(0, 120);
-  if (!cleaned) throw new HttpError(400, "validation", "Title cannot be empty.");
+export async function updateConversationRow(
+  userId: string,
+  conversationId: string,
+  patch: { title?: string; pinned?: boolean; archived?: boolean; projectId?: string | null }
+): Promise<ConversationRow> {
   const db = createServiceClient();
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.title !== undefined) {
+    const cleaned = patch.title.trim().slice(0, 120);
+    if (!cleaned) throw new HttpError(400, "validation", "Title cannot be empty.");
+    update.title = cleaned;
+  }
+  if (patch.pinned !== undefined) update.pinned = patch.pinned;
+  if (patch.archived !== undefined) {
+    update.archived = patch.archived;
+    if (patch.archived) update.pinned = false;
+  }
+  if (patch.projectId !== undefined) {
+    if (patch.projectId) await getProject(userId, patch.projectId, db);
+    update.project_id = patch.projectId;
+  }
   const { data, error } = await db
     .from("conversations")
-    .update({ title: cleaned, updated_at: new Date().toISOString() })
-    .eq("id", id)
+    .update(update)
+    .eq("id", conversationId)
     .eq("user_id", userId)
     .select("*")
     .maybeSingle();
   if (error || !data) throw new HttpError(404, "not_found", "Conversation not found.");
-  const row = data as unknown as ConversationRow;
-  const count = await messageCountFor(row.id, db);
+  return data as unknown as ConversationRow;
+}
+
+export async function renameConversation(userId: string, id: string, title: string) {
+  const row = await updateConversationRow(userId, id, { title });
+  const count = await messageCountFor(id);
   return rowToConversation(row, count);
 }
 
@@ -533,6 +645,317 @@ export async function deleteFileRecord(userId: string, fileId: string): Promise<
   const db = createServiceClient();
   const { error } = await db.from("files").delete().eq("id", fileId).eq("user_id", userId);
   if (error) throw new Error(`Failed to delete file: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+function rowToProject(row: ProjectRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    instructions: row.instructions,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+export async function listProjects(userId: string) {
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("projects")
+    .select("*")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false });
+  if (error) throw new Error(`Failed to list projects: ${error.message}`);
+  return ((data ?? []) as unknown as ProjectRow[]).map(rowToProject);
+}
+
+export async function getProject(
+  userId: string,
+  id: string,
+  db: Db = createServiceClient()
+): Promise<ProjectRow> {
+  const { data, error } = await db
+    .from("projects")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) throw new HttpError(404, "not_found", "Project not found.");
+  return data as unknown as ProjectRow;
+}
+
+export async function createProject(
+  userId: string,
+  input: { name: string; description?: string; instructions?: string }
+) {
+  const name = input.name.trim().slice(0, 120);
+  if (!name) throw new HttpError(400, "validation", "Project name is required.");
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("projects")
+    .insert({
+      user_id: userId,
+      name,
+      description: input.description?.trim().slice(0, 500) ?? "",
+      instructions: input.instructions?.trim().slice(0, 4000) ?? "",
+    })
+    .select("*")
+    .single();
+  if (error) {
+    if (/check/i.test(error.message)) throw new HttpError(400, "validation", "Project name is required.");
+    throw new Error(`Failed to create project: ${error.message}`);
+  }
+  return rowToProject(data as unknown as ProjectRow);
+}
+
+export async function updateProject(
+  userId: string,
+  id: string,
+  patch: { name?: string; description?: string; instructions?: string }
+) {
+  await getProject(userId, id);
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.name !== undefined) {
+    const name = patch.name.trim().slice(0, 120);
+    if (!name) throw new HttpError(400, "validation", "Project name is required.");
+    update.name = name;
+  }
+  if (patch.description !== undefined) update.description = patch.description.trim().slice(0, 500);
+  if (patch.instructions !== undefined) update.instructions = patch.instructions.trim().slice(0, 4000);
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("projects")
+    .update(update)
+    .eq("id", id)
+    .eq("user_id", userId)
+    .select("*")
+    .maybeSingle();
+  if (error || !data) throw new HttpError(404, "not_found", "Project not found.");
+  return rowToProject(data as unknown as ProjectRow);
+}
+
+export async function deleteProject(userId: string, id: string): Promise<void> {
+  const db = createServiceClient();
+  await getProject(userId, id, db);
+  const { error } = await db.from("projects").delete().eq("id", id).eq("user_id", userId);
+  if (error) throw new Error(`Failed to delete project: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Memories
+// ---------------------------------------------------------------------------
+
+export async function listMemories(userId: string) {
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("memories")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw new Error(`Failed to list memories: ${error.message}`);
+  return ((data ?? []) as unknown as MemoryRow[]).map((row) => ({
+    id: row.id,
+    content: row.content,
+    createdAt: iso(row.created_at),
+  }));
+}
+
+export async function createMemory(userId: string, content: string) {
+  const cleaned = content.trim().slice(0, 500);
+  if (!cleaned) throw new HttpError(400, "validation", "Memory cannot be empty.");
+  const db = createServiceClient();
+  const { count, error } = await db
+    .from("memories")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+  if (error) throw new Error(`Failed to check memories: ${error.message}`);
+  if ((count ?? 0) >= 100) throw new HttpError(400, "validation", "Memory limit reached (100). Remove some first.");
+  const { data, error: insertError } = await db
+    .from("memories")
+    .insert({ user_id: userId, content: cleaned })
+    .select("*")
+    .single();
+  if (insertError) throw new Error(`Failed to save memory: ${insertError.message}`);
+  const row = data as unknown as MemoryRow;
+  return { id: row.id, content: row.content, createdAt: iso(row.created_at) };
+}
+
+export async function deleteMemory(userId: string, id: string): Promise<void> {
+  const db = createServiceClient();
+  const { error } = await db.from("memories").delete().eq("id", id).eq("user_id", userId);
+  if (error) throw new Error(`Failed to delete memory: ${error.message}`);
+}
+
+export async function clearMemories(userId: string): Promise<void> {
+  const db = createServiceClient();
+  const { error } = await db.from("memories").delete().eq("user_id", userId);
+  if (error) throw new Error(`Failed to clear memories: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Assistants
+// ---------------------------------------------------------------------------
+
+function rowToAssistant(row: AssistantRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    instructions: row.instructions,
+    model: row.model,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+export async function listAssistants(userId: string) {
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("assistants")
+    .select("*")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false });
+  if (error) throw new Error(`Failed to list assistants: ${error.message}`);
+  return ((data ?? []) as unknown as AssistantRow[]).map(rowToAssistant);
+}
+
+export async function getAssistant(
+  userId: string,
+  id: string,
+  db: Db = createServiceClient()
+): Promise<AssistantRow> {
+  const { data, error } = await db
+    .from("assistants")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) throw new HttpError(404, "not_found", "Assistant not found.");
+  return data as unknown as AssistantRow;
+}
+
+export async function createAssistant(
+  userId: string,
+  input: { name: string; instructions?: string; model?: string }
+) {
+  const name = input.name.trim().slice(0, 80);
+  if (!name) throw new HttpError(400, "validation", "Assistant name is required.");
+  const model = input.model ?? defaultModelId().id;
+  if (!getModel(model)) throw new HttpError(400, "validation", "Unknown model.");
+  const db = createServiceClient();
+  const { count } = await db.from("assistants").select("id", { count: "exact", head: true }).eq("user_id", userId);
+  if ((count ?? 0) >= 20) throw new HttpError(400, "validation", "Assistant limit reached (20).");
+  const { data, error } = await db
+    .from("assistants")
+    .insert({
+      user_id: userId,
+      name,
+      instructions: input.instructions?.trim().slice(0, 4000) ?? "",
+      model,
+    })
+    .select("*")
+    .single();
+  if (error) throw new Error(`Failed to create assistant: ${error.message}`);
+  return rowToAssistant(data as unknown as AssistantRow);
+}
+
+export async function updateAssistant(
+  userId: string,
+  id: string,
+  patch: { name?: string; instructions?: string; model?: string }
+) {
+  await getAssistant(userId, id);
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (patch.name !== undefined) {
+    const name = patch.name.trim().slice(0, 80);
+    if (!name) throw new HttpError(400, "validation", "Assistant name is required.");
+    update.name = name;
+  }
+  if (patch.instructions !== undefined) update.instructions = patch.instructions.trim().slice(0, 4000);
+  if (patch.model !== undefined) {
+    getModel(patch.model);
+    update.model = patch.model;
+  }
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("assistants")
+    .update(update)
+    .eq("id", id)
+    .eq("user_id", userId)
+    .select("*")
+    .maybeSingle();
+  if (error || !data) throw new HttpError(404, "not_found", "Assistant not found.");
+  return rowToAssistant(data as unknown as AssistantRow);
+}
+
+export async function deleteAssistant(userId: string, id: string): Promise<void> {
+  const db = createServiceClient();
+  const { error } = await db.from("assistants").delete().eq("id", id).eq("user_id", userId);
+  if (error) throw new Error(`Failed to delete assistant: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Saved prompts
+// ---------------------------------------------------------------------------
+
+export async function listSavedPrompts(userId: string) {
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("saved_prompts")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw new Error(`Failed to list prompts: ${error.message}`);
+  return ((data ?? []) as unknown as SavedPromptRow[]).map((row) => ({
+    id: row.id,
+    title: row.title,
+    body: row.body,
+    createdAt: iso(row.created_at),
+  }));
+}
+
+export async function createSavedPrompt(userId: string, input: { title: string; body: string }) {
+  const title = input.title.trim().slice(0, 120);
+  const body = input.body.trim().slice(0, 4000);
+  if (!title || !body) throw new HttpError(400, "validation", "Title and prompt body are required.");
+  const db = createServiceClient();
+  const { data, error } = await db
+    .from("saved_prompts")
+    .insert({ user_id: userId, title, body })
+    .select("*")
+    .single();
+  if (error) throw new Error(`Failed to save prompt: ${error.message}`);
+  const row = data as unknown as SavedPromptRow;
+  return { id: row.id, title: row.title, body: row.body, createdAt: iso(row.created_at) };
+}
+
+export async function deleteSavedPrompt(userId: string, id: string): Promise<void> {
+  const db = createServiceClient();
+  const { error } = await db.from("saved_prompts").delete().eq("id", id).eq("user_id", userId);
+  if (error) throw new Error(`Failed to delete prompt: ${error.message}`);
+}
+
+// ---------------------------------------------------------------------------
+// Billing plan state
+// ---------------------------------------------------------------------------
+
+export type PlanId = "free" | "pro" | "team";
+
+export async function getProfilePlan(userId: string, db: Db = createServiceClient()): Promise<PlanId> {
+  const row = await getProfileRow(userId, db);
+  const plan = row ? (row as unknown as { plan?: string }).plan : undefined;
+  return plan === "pro" || plan === "team" ? plan : "free";
+}
+
+export async function setProfilePlan(userId: string, plan: PlanId): Promise<void> {
+  const db = createServiceClient();
+  const { error } = await db.from("profiles").update({ plan }).eq("id", userId);
+  if (error) throw new Error(`Failed to update plan: ${error.message}`);
 }
 
 // ---------------------------------------------------------------------------

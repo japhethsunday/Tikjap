@@ -5,6 +5,7 @@ export interface User {
   email: string;
   name: string;
   role: Role;
+  plan?: PlanId;
   avatarUrl?: string;
   createdAt: string;
 }
@@ -25,6 +26,9 @@ export interface Conversation {
   updatedAt: string;
   model: string;
   messageCount: number;
+  pinned?: boolean;
+  archived?: boolean;
+  projectId?: string | null;
 }
 
 export type MessageRole = "user" | "assistant" | "system";
@@ -147,6 +151,40 @@ export interface ChatRequest {
   regenerate?: boolean;
   regenerateMessageId?: string;
   removeFromMessageId?: string;
+  assistantId?: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PlanId = "free" | "pro" | "team";
+
+export interface Memory {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface Assistant {
+  id: string;
+  name: string;
+  instructions: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SavedPrompt {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
 }
 
 export interface StreamChunk {

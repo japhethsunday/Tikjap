@@ -3,6 +3,8 @@ import {
   createConversation as storeCreateConversation,
   deleteConversation as storeDeleteConversation,
   deleteMessagesFrom,
+  getAssistant,
+  getProject,
   getConversation as storeGetConversation,
   getConversationRow,
   getFile,
@@ -10,12 +12,15 @@ import {
   getMessageRow,
   insertMessage,
   listConversations as storeListConversations,
+  listMemories,
   listMessages as storeListMessages,
   renameConversation as storeRenameConversation,
   uid,
   updateConversation,
+  updateConversationRow,
   updateMessage,
   type ConversationRow,
+  type ListConversationsOptions,
   type ServerUser,
 } from "./store";
 import { createServiceClient } from "./supabase";
@@ -23,13 +28,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModel, defaultModel } from "./models";
 import { assertWithinLimits, recordRequest, recordUsage } from "./usage";
 import { titleFromContent, formatBytes } from "@/lib/utils";
+import { MAX_ATTACHMENTS_PER_MESSAGE } from "@/lib/constants";
 import type { AIModel, AttachmentRef, MessageUsage, StreamChunk } from "@/lib/types";
 
-export async function listConversations(userId: string, query?: string) {
-  return storeListConversations(userId, query);
+export async function listConversations(userId: string, options: ListConversationsOptions = {}) {
+  return storeListConversations(userId, options);
 }
 
-export async function createConversation(userId: string, input: { title?: string; modelId?: string }) {
+export async function createConversation(userId: string, input: { title?: string; modelId?: string; projectId?: string }) {
   return storeCreateConversation(userId, input);
 }
 
@@ -39,6 +45,15 @@ export async function getConversation(userId: string, id: string) {
 
 export async function renameConversation(userId: string, id: string, title: string) {
   return storeRenameConversation(userId, id, title);
+}
+
+export async function updateConversationSettings(
+  userId: string,
+  id: string,
+  patch: { pinned?: boolean; archived?: boolean; projectId?: string | null }
+) {
+  await updateConversationRow(userId, id, patch);
+  return storeGetConversation(userId, id);
 }
 
 export async function deleteConversation(userId: string, id: string) {
@@ -57,6 +72,7 @@ export interface GenerationParams {
   attachmentIds?: string[];
   regenerateMessageId?: string;
   removeFromMessageId?: string;
+  assistantId?: string;
   signal?: AbortSignal;
 }
 
@@ -144,7 +160,13 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         assistantMessageId = assistant.id;
         await updateConversation(conversationId, { model: model.id }, db);
 
-        const fullText = buildDemoResponse(promptText, model, attachmentRefs, params.regenerateMessageId !== undefined);
+        const fullText = buildDemoResponse(
+          promptText,
+          model,
+          attachmentRefs,
+          params.regenerateMessageId !== undefined,
+          await resolveGenerationContext(user.id, conversation, params.assistantId)
+        );
         const tokens = fullText.match(/\S+\s*/g) ?? [fullText];
         const inputTokens = estimateTokens(promptText);
         const outputTokens = estimateTokens(fullText);
@@ -189,12 +211,49 @@ export function startGeneration(params: GenerationParams): GenerationResult {
 
 async function resolveAttachments(userId: string, attachmentIds?: string[], db: SupabaseClient = createServiceClient()): Promise<AttachmentRef[]> {
   if (!attachmentIds?.length) return [];
+  if (attachmentIds.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    throw new HttpError(400, "validation", `Up to ${MAX_ATTACHMENTS_PER_MESSAGE} attachments per message.`);
+  }
   const refs: AttachmentRef[] = [];
   for (const fileId of attachmentIds) {
     const file = await getFile(userId, fileId, db);
     refs.push({ fileId: file.id, name: file.name, size: file.size, mimeType: file.mime_type });
   }
   return refs;
+}
+
+/**
+ * Gathers user-owned context for a generation: custom assistant instructions,
+ * project instructions (when the conversation lives in a project), and the
+ * user's saved memories. Everything is owner-scoped; nothing crosses accounts.
+ */
+async function resolveGenerationContext(
+  userId: string,
+  conversation: ConversationRow,
+  assistantId?: string
+): Promise<string[]> {
+  const parts: string[] = [];
+  try {
+    if (assistantId) {
+      const assistant = await getAssistant(userId, assistantId);
+      if (assistant.instructions.trim()) {
+        parts.push(`Assistant "${assistant.name}" instructions:\n${assistant.instructions.trim()}`);
+      }
+    }
+    if (conversation.project_id) {
+      const project = await getProject(userId, conversation.project_id);
+      if (project.instructions.trim()) {
+        parts.push(`Project "${project.name}" instructions:\n${project.instructions.trim()}`);
+      }
+    }
+    const memories = await listMemories(userId);
+    if (memories.length) {
+      parts.push(`Things to remember about the user:\n${memories.slice(0, 20).map((m) => `- ${m.content}`).join("\n")}`);
+    }
+  } catch (error) {
+    console.error("[chat/context]", error instanceof Error ? error.message : error);
+  }
+  return parts;
 }
 
 function messageOf(error: unknown): string {
@@ -226,7 +285,13 @@ function hashSeed(text: string): number {
   return Math.abs(hash);
 }
 
-function buildDemoResponse(prompt: string, model: AIModel, attachments: AttachmentRef[], isRegenerate: boolean): string {
+function buildDemoResponse(
+  prompt: string,
+  model: AIModel,
+  attachments: AttachmentRef[],
+  isRegenerate: boolean,
+  contextParts: string[] = []
+): string {
   const seed = hashSeed(prompt + model.id + (isRegenerate ? "-regen" : ""));
   const topic = summarizeTopic(prompt);
   const variations = [
@@ -235,6 +300,10 @@ function buildDemoResponse(prompt: string, model: AIModel, attachments: Attachme
     `Let me break down **${topic}** into the parts that matter most.`,
   ];
   const intro = variations[seed % variations.length];
+
+  const contextBlock = contextParts.length
+    ? `${contextParts.map((part) => `> ${part.replace(/\n/g, "\n> ")}\n`).join("")}\n`
+    : "";
 
   const bullets = [
     "**Fast streaming** — responses appear token by token, so you can read as I write.",
@@ -254,6 +323,10 @@ function buildDemoResponse(prompt: string, model: AIModel, attachments: Attachme
 console.log(hello("${topic.split(" ")[0]}"));`;
 
   const lines: string[] = [];
+  if (contextBlock) {
+    lines.push(contextBlock.trimEnd());
+    lines.push("");
+  }
   lines.push(`# ${capitalize(topic)}`);
   lines.push("");
   lines.push(intro);

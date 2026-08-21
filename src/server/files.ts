@@ -5,6 +5,38 @@ import { ALLOWED_FILE_EXTENSIONS, MAX_FILE_SIZE_BYTES, fileKindFromExtension, ge
 
 const BUCKET = "uploads";
 
+/**
+ * Canonical content type per allowed extension. The client-supplied Content-Type
+ * header is never trusted — it is ignored in favor of this mapping so a `.txt`
+ * upload can never be stored or served as `text/html` (stored-XSS protection).
+ */
+const CANONICAL_MIME_BY_EXTENSION: Record<string, string> = {
+  pdf: "application/pdf",
+  txt: "text/plain; charset=utf-8",
+  md: "text/markdown; charset=utf-8",
+  markdown: "text/markdown; charset=utf-8",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  csv: "text/csv; charset=utf-8",
+  json: "application/json",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+};
+
+export function canonicalMimeType(extension: string): string {
+  return CANONICAL_MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+}
+
+/**
+ * Only formats browsers can safely render inline are served inline; everything
+ * else is force-downloaded so HTML/SVG-like payloads never execute on our origin.
+ */
+export function shouldServeInline(contentType: string): boolean {
+  return contentType.startsWith("image/") || contentType === "application/pdf";
+}
+
 export async function handleFileUpload(userId: string, formData: FormData): Promise<{ file: FileRow }> {
   const raw = formData.get("file");
   if (!(raw instanceof File)) {
@@ -28,11 +60,12 @@ export async function handleFileUpload(userId: string, formData: FormData): Prom
   const safeName = raw.name.replace(/[^\w.\- ()]/g, "_").slice(0, 200);
   const fileId = uid();
   const storagePath = `${userId}/${fileId}-${safeName}`;
+  const contentType = canonicalMimeType(extension);
   const buffer = Buffer.from(await raw.arrayBuffer());
 
   const db = createServiceClient();
   const { error: uploadError } = await db.storage.from(BUCKET).upload(storagePath, buffer, {
-    contentType: raw.type || "application/octet-stream",
+    contentType,
     upsert: false,
   });
   if (uploadError) {
@@ -45,7 +78,7 @@ export async function handleFileUpload(userId: string, formData: FormData): Prom
     user_id: userId,
     name: safeName,
     size: raw.size,
-    mime_type: raw.type || "application/octet-stream",
+    mime_type: contentType,
     kind: fileKindFromExtension(extension),
     storage_path: storagePath,
   });

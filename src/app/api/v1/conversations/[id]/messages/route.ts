@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser, readJson } from "@/server/http";
 import { HttpError } from "@/server/errors";
 import { withHandler } from "@/server/handler";
+import { rateLimit } from "@/server/rate-limit";
 import { listMessages, startGeneration } from "@/server/chat";
 import type { ChatRequest } from "@/lib/types";
 
@@ -19,6 +20,13 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { user } = await requireUser();
+    const burst = rateLimit(`chat:${user.id}`, 20, 60_000);
+    if (!burst.ok) {
+      return NextResponse.json(
+        { error: { code: "rate_limit", message: "You are sending messages too quickly. Please slow down." } },
+        { status: 429, headers: { "Retry-After": String(burst.retryAfterSeconds) } }
+      );
+    }
     const { id } = await context.params;
     const body = await readJson<ChatRequest>(request);
     const generation = startGeneration({
@@ -29,6 +37,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       attachmentIds: body.attachments,
       regenerateMessageId: body.regenerate ? body.regenerateMessageId : undefined,
       removeFromMessageId: body.removeFromMessageId,
+      assistantId: body.assistantId,
       signal: request.signal,
     });
     return new NextResponse(generation.stream, {

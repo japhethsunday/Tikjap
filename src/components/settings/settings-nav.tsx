@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { User, Palette, Sparkles, BarChart3, ShieldCheck } from "lucide-react";
+import { User, Palette, Sparkles, BarChart3, ShieldCheck, BrainCircuit } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
   { href: "/settings/account", label: "Account", icon: <User className="h-4 w-4" aria-hidden /> },
   { href: "/settings/appearance", label: "Appearance", icon: <Palette className="h-4 w-4" aria-hidden /> },
   { href: "/settings/ai-preferences", label: "AI preferences", icon: <Sparkles className="h-4 w-4" aria-hidden /> },
+  { href: "/settings/intelligence", label: "Intelligence", icon: <BrainCircuit className="h-4 w-4" aria-hidden /> },
   { href: "/settings/usage", label: "Usage", icon: <BarChart3 className="h-4 w-4" aria-hidden /> },
   { href: "/settings/security", label: "Security", icon: <ShieldCheck className="h-4 w-4" aria-hidden /> },
 ];

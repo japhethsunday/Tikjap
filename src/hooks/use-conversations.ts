@@ -3,25 +3,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api";
+import type { ListConversationsParams } from "@/lib/api/services/conversations";
 
-export function useConversations(searchQuery?: string) {
+export function useConversations(params: ListConversationsParams | string = {}) {
+  const normalized: ListConversationsParams = typeof params === "string" ? { query: params } : params;
+  const key = JSON.stringify(normalized);
   const query = useQuery({
-    queryKey: ["conversations", searchQuery ?? ""],
-    queryFn: () => api.conversations.list(searchQuery),
-    enabled: searchQuery === undefined,
+    queryKey: ["conversations", key],
+    queryFn: () => api.conversations.list(normalized),
+    enabled: !normalized.query,
   });
 
   const filtered = useQuery({
-    queryKey: ["conversations-search", searchQuery],
-    queryFn: () => api.conversations.list(searchQuery),
-    enabled: Boolean(searchQuery?.trim()),
+    queryKey: ["conversations-search", key],
+    queryFn: () => api.conversations.list(normalized),
+    enabled: Boolean(normalized.query?.trim()),
   });
 
   return {
-    conversations: (searchQuery ? filtered.data?.conversations : query.data?.conversations) ?? [],
-    isLoading: (searchQuery ? filtered.isLoading : query.isLoading),
-    isError: (searchQuery ? filtered.isError : query.isError),
-    refetch: searchQuery ? filtered.refetch : query.refetch,
+    conversations: (normalized.query ? filtered.data?.conversations : query.data?.conversations) ?? [],
+    isLoading: (normalized.query ? filtered.isLoading : query.isLoading),
+    isError: (normalized.query ? filtered.isError : query.isError),
+    refetch: normalized.query ? filtered.refetch : query.refetch,
   };
 }
 
@@ -46,6 +49,18 @@ export function useRenameConversation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) => api.conversations.rename(id, title),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      void queryClient.invalidateQueries({ queryKey: ["conversation", result.conversation.id] });
+    },
+  });
+}
+
+export function useUpdateConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: { id: string; pinned?: boolean; archived?: boolean; projectId?: string | null }) =>
+      api.conversations.update(id, patch),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ["conversations"] });
       void queryClient.invalidateQueries({ queryKey: ["conversation", result.conversation.id] });

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { withHandler } from "@/server/handler";
 import { requireUser, readJson } from "@/server/http";
-import { getConversation, renameConversation, updateConversationSettings, deleteConversation } from "@/server/chat";
+import { deleteProject, getProject, updateProject } from "@/server/store";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -9,8 +9,17 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   return withHandler(async () => {
     const { user } = await requireUser();
     const { id } = await context.params;
-    const conversation = await getConversation(user.id, id);
-    return { conversation };
+    const row = await getProject(user.id, id);
+    return {
+      project: {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        instructions: row.instructions,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      },
+    };
   });
 }
 
@@ -18,17 +27,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   return withHandler(async () => {
     const { user } = await requireUser();
     const { id } = await context.params;
-    const body = await readJson<{ title?: string; pinned?: boolean; archived?: boolean; projectId?: string | null }>(request);
-    if (body.title !== undefined) {
-      const conversation = await renameConversation(user.id, id, body.title ?? "");
-      return { conversation };
-    }
-    const conversation = await updateConversationSettings(user.id, id, {
-      pinned: body.pinned,
-      archived: body.archived,
-      projectId: body.projectId,
-    });
-    return { conversation };
+    const body = await readJson<{ name?: string; description?: string; instructions?: string }>(request);
+    return { project: await updateProject(user.id, id, body) };
   });
 }
 
@@ -36,7 +36,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
   return withHandler(async () => {
     const { user } = await requireUser();
     const { id } = await context.params;
-    await deleteConversation(user.id, id);
+    await deleteProject(user.id, id);
     return { ok: true };
   });
 }
