@@ -23,7 +23,7 @@ export function createMessagesService(client: ApiClient) {
           }
           onChunk(chunk);
         },
-        { signal: options.signal }
+        { signal: options.signal, client }
       );
     },
 
@@ -32,7 +32,7 @@ export function createMessagesService(client: ApiClient) {
       request: ChatRequest,
       options: { signal?: AbortSignal } = {}
     ): Promise<ReturnType<typeof openStream>> {
-      return openStream(`/conversations/${conversationId}/messages`, request, options);
+      return openStream(`/conversations/${conversationId}/messages`, request, { ...options, client });
     },
   };
 }

@@ -36,7 +36,7 @@ export class ApiClient {
     (this as unknown as { onUnauthorized?: () => void }).onUnauthorized = handler;
   }
 
-  private buildUrl(path: string): string {
+  buildUrl(path: string): string {
     if (/^https?:\/\//.test(path)) return path;
     const normalized = path.startsWith("/") ? path : `/${path}`;
     return `${this.baseUrl}${normalized}`;

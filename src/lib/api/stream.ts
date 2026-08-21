@@ -7,16 +7,21 @@ export interface StreamResult {
   cancel: () => Promise<void>;
 }
 
+export interface StreamClient {
+  buildUrl(path: string): string;
+}
+
 /**
  * Starts a streaming request. The body is sent as JSON; the response body is
  * expected to be an SSE stream (`text/event-stream`) with `data:` lines
  * containing JSON payloads.
  */
 export async function openStream(
-  url: string,
+  urlOrPath: string,
   body: unknown,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; client?: StreamClient } = {}
 ): Promise<StreamResult> {
+  const url = options.client ? options.client.buildUrl(urlOrPath) : urlOrPath;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -124,7 +129,7 @@ export async function collectStream(
   url: string,
   body: unknown,
   onChunk: (chunk: StreamChunk) => void,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; client?: StreamClient } = {}
 ): Promise<void> {
   const { reader } = await openStream(url, body, options);
   try {
