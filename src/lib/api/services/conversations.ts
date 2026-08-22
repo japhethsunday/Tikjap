@@ -86,6 +86,9 @@ export function createConversationsService(client: ApiClient) {
     setMessageBookmark(conversationId: string, messageId: string, bookmarked: boolean): Promise<{ bookmarked: boolean }> {
       return client.patch(`/conversations/${conversationId}/messages/${messageId}`, { bookmarked });
     },
+    stopGeneration(conversationId: string): Promise<{ ok: boolean }> {
+      return client.post(`/conversations/${conversationId}/stop`, {});
+    },
     sendMessageFeedback(
       conversationId: string,
       messageId: string,

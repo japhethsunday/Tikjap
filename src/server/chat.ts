@@ -222,6 +222,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         );
         let fullText = "";
         let sentText = "";
+        let stopRequested = false;
 
         if (upstream && gatewayConfigured) {
           // Real inference path: route through the internal provider, streaming
@@ -250,6 +251,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
 
           try {
             let streamed = "";
+            let deltaCount = 0;
             for await (const part of nimProvider.streamChat({
               model: upstream.model,
               messages: providerMessages,
@@ -265,8 +267,16 @@ export function startGeneration(params: GenerationParams): GenerationResult {
               streamed += part.delta;
               sentText += part.delta;
               send({ type: "delta", content: part.delta });
+              deltaCount += 1;
+              if (deltaCount % 25 === 0) {
+                const row = await getMessageRow(conversationId, assistantMessageId, db).catch(() => undefined);
+                if (row && row.status !== "streaming") {
+                  stopRequested = true;
+                  break;
+                }
+              }
             }
-            if (!streamed.trim()) {
+            if (!stopRequested && !stopController.signal.aborted && !streamed.trim()) {
               throw new ProviderError("unavailable", 502, PROVIDER_DOWN_MESSAGE, "empty completion");
             }
             fullText = priorContent ? `${priorContent}\n\n${streamed}` : streamed;
@@ -300,12 +310,21 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           fullText = priorContent ? `${priorContent}\n\n${continuation}` : continuation;
           const tokens = continuation.match(/\S+\s*/g) ?? [continuation];
 
+          let tokenCount = 0;
           for (const token of tokens) {
             if (stopController.signal.aborted) break;
             if (!firstTokenAt) firstTokenAt = Date.now();
             send({ type: "delta", content: token });
             sentText += token;
             await sleep(14 + (token.length % 9) * 2);
+            tokenCount += 1;
+            if (tokenCount % 40 === 0) {
+              const row = await getMessageRow(conversationId, assistantMessageId, db).catch(() => undefined);
+              if (row && row.status !== "streaming") {
+                stopRequested = true;
+                break;
+              }
+            }
           }
         }
 
@@ -314,7 +333,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         const outputTokens = estimateTokens(fullText);
         const usage: MessageUsage = { inputTokens, outputTokens };
 
-        if (!stopController.signal.aborted) {
+        if (!stopController.signal.aborted && !stopRequested) {
           await updateMessage(assistantMessageId, { content: fullText, status: "complete", usage, latencyMs }, db);
           await recordUsage(user.id, usage, params.regenerateMessageId ? 0 : 1);
           await recordRequest(user.id, model.id, usage, true);

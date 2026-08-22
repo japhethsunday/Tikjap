@@ -320,7 +320,10 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
-  }, []);
+    if (conversationId) {
+      void api.conversations.stopGeneration(conversationId).catch(() => undefined);
+    }
+  }, [conversationId]);
 
   const isStreaming = status === "streaming";
 
