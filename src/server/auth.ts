@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient, createServerClient, createAPIServerClient } from "./supabase";
 import { HttpError } from "./errors";
-import { json, publicUser, requireUser, touchUserActivity, getSessionUser } from "./http";
+import { json, publicUser, requireUser, touchUserActivity, getSessionUser, readJson } from "./http";
 import { deleteAuthSessionsExcept, ensureProfile, getServerUser, iso, listAuthSessions } from "./store";
 import { seedIfEmpty } from "./seed";
 import { EMAIL_PATTERN } from "@/lib/validation";
@@ -19,7 +19,7 @@ function displayNameFrom(user: { email?: string | null; user_metadata?: Record<s
 
 export async function handleSignup(request: Request): Promise<NextResponse> {
   await seedIfEmpty();
-  const body = (await request.json().catch(() => null)) as Partial<SignupInput> | null;
+  const body = await readJson<Partial<SignupInput>>(request);
   const name = body?.name?.trim() ?? "";
   const email = normalizeEmail(body?.email ?? "");
   const password = body?.password ?? "";
@@ -82,7 +82,7 @@ export async function handleSignup(request: Request): Promise<NextResponse> {
 
 export async function handleLogin(request: Request): Promise<NextResponse> {
   await seedIfEmpty();
-  const body = (await request.json().catch(() => null)) as Partial<LoginInput> | null;
+  const body = await readJson<Partial<LoginInput>>(request);
   const email = normalizeEmail(body?.email ?? "");
   const password = body?.password ?? "";
 
