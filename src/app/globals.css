@@ -33,6 +33,24 @@
   --code-bg: #0d0e13;
 }
 
+/* ------- Accent themes (applied via <html data-accent="...">) ------- */
+:root[data-accent="indigo"] { --accent: #4f46e5; }
+.dark[data-accent="indigo"] { --accent: #818cf8; }
+:root[data-accent="violet"] { --accent: #7c3aed; }
+.dark[data-accent="violet"] { --accent: #a78bfa; }
+:root[data-accent="blue"] { --accent: #2563eb; }
+.dark[data-accent="blue"] { --accent: #60a5fa; }
+:root[data-accent="cyan"] { --accent: #0891b2; }
+.dark[data-accent="cyan"] { --accent: #22d3ee; }
+:root[data-accent="emerald"] { --accent: #059669; }
+.dark[data-accent="emerald"] { --accent: #34d399; }
+:root[data-accent="amber"] { --accent: #d97706; }
+.dark[data-accent="amber"] { --accent: #fbbf24; }
+:root[data-accent="rose"] { --accent: #e11d48; }
+.dark[data-accent="rose"] { --accent: #fb7185; }
+:root[data-accent="mono"] { --accent: #3f3f46; }
+.dark[data-accent="mono"] { --accent: #d4d4d8; }
+
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);

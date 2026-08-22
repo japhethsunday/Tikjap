@@ -23,6 +23,7 @@ import { api } from "@/lib/api";
 import { useConversations, toErrorMessage } from "@/hooks/use-conversations";
 import { useProjects } from "@/hooks/use-platform";
 import { Avatar } from "@/components/ui/avatar";
+import { LogoMark } from "@/components/logo";
 import { Spinner } from "@/components/ui/primitives";
 import { Dropdown, DropdownItem } from "@/components/ui/overlays";
 import { timeAgo, cn, debounce } from "@/lib/utils";
@@ -189,10 +190,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             onClick={() => go("/chat")}
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-semibold text-fg transition-colors hover:bg-surface"
           >
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-xs font-bold text-white">
-              T
-            </span>
-            Tikjap AI
+            <LogoMark size={24} />
+            Tikjap<span className="font-normal text-muted"> AI</span>
           </button>
           <button
             type="button"

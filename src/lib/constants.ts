@@ -48,6 +48,7 @@ export function isImageFile(name: string): boolean {
 }
 
 export const THEME_STORAGE_KEY = "tk-theme";
+export const THEME_ACCENT_STORAGE_KEY = "tk-theme-accent";
 
 export const DEMO_PLANS = [
   {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth";
+import { LogoMark } from "@/components/logo";
 import { Button, Card, Input, Field, FormError } from "@/components/ui";
 import { validateSignup } from "@/lib/validation";
 import { errorMessage } from "@/lib/api";
@@ -64,8 +65,8 @@ export default function SignupPage() {
   return (
     <Card className="p-8">
       <div className="mb-6 text-center">
-        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-lg font-bold text-white">
-          T
+        <div className="mx-auto mb-3 w-fit">
+          <LogoMark size={44} />
         </div>
         <h1 className="text-xl font-semibold text-fg">Create your account</h1>
         <p className="mt-1 text-sm text-muted">Start chatting with AI in seconds</p>

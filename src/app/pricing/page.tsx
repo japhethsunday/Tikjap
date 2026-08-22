@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { LogoMark } from "@/components/logo";
 
 export const metadata: Metadata = {
   title: "Pricing · Tikjap AI",
@@ -63,8 +64,8 @@ export default function PricingPage() {
     <main className="mx-auto min-h-dvh w-full max-w-5xl px-4 py-14">
       <header className="mb-10 flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm font-semibold text-fg">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-xs font-bold text-white">T</span>
-          Tikjap AI
+          <LogoMark size={26} />
+          Tikjap<span className="font-normal text-muted"> AI</span>
         </span>
         <Link href="/chat" className="text-sm font-medium text-muted transition-colors hover:text-fg">
           Open app →

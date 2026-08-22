@@ -3,6 +3,7 @@
 import { use, useState } from "react";
 import { Lock } from "lucide-react";
 import { Button, Input } from "@/components/ui";
+import { LogoMark } from "@/components/logo";
 import { Markdown } from "@/components/chat/markdown";
 import type { SharedConversation } from "@/lib/types";
 
@@ -40,8 +41,8 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-3xl px-4 py-10">
       <header className="mb-8 flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-xs font-bold text-white">T</span>
-        <span className="text-sm font-semibold text-fg">Tikjap AI · shared conversation</span>
+        <LogoMark size={26} />
+        <span className="text-sm font-semibold text-fg">Tikjap<span className="font-normal text-muted"> AI</span> · shared conversation</span>
       </header>
 
       {!data && needsPassword ? (
