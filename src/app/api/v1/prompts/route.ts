@@ -13,8 +13,15 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   return withHandler(async () => {
     const { user } = await requireUser();
-    const body = await readJson<{ title?: string; body?: string }>(request);
-    return { prompt: await createSavedPrompt(user.id, { title: body.title ?? "", body: body.body ?? "" }) };
+    const body = await readJson<{ title?: string; body?: string; category?: string; tags?: string[] }>(request);
+    return {
+      prompt: await createSavedPrompt(user.id, {
+        title: body.title ?? "",
+        body: body.body ?? "",
+        category: body.category,
+        tags: body.tags,
+      }),
+    };
   });
 }
 
