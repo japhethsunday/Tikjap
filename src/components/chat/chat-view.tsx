@@ -62,6 +62,18 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
   const defaultModelId = preferences?.preferences.defaultModelId ?? models.find((m) => m.isDefault)?.id ?? models[0]?.id ?? "";
   const [modelId, setModelId] = useState(defaultModelId);
   const effectiveModelId = modelId || defaultModelId;
+  // Follow the conversation's stored model until the user manually picks one;
+  // reset that override whenever a different conversation is opened.
+  const modelOverrideRef = useRef(false);
+  useEffect(() => {
+    modelOverrideRef.current = false;
+  }, [conversationId]);
+  const conversationModel = conversation?.conversation?.model;
+  useEffect(() => {
+    if (conversationId && conversationModel && !modelOverrideRef.current) {
+      setModelId(conversationModel);
+    }
+  }, [conversationId, conversationModel]);
   const [assistantId, setAssistantId] = useState<string | undefined>(undefined);
 
   const [renameOpen, setRenameOpen] = useState(false);
@@ -154,7 +166,15 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
             </p>
           ) : null}
         </div>
-        <ModelSelect models={models} value={effectiveModelId} onChange={setModelId} loading={modelsData === undefined} />
+        <ModelSelect
+          models={models}
+          value={effectiveModelId}
+          onChange={(id) => {
+            modelOverrideRef.current = true;
+            setModelId(id);
+          }}
+          loading={modelsData === undefined}
+        />
         {assistants.length > 0 ? (
           <Dropdown
             trigger={({ ref, toggle, "aria-expanded": expanded }) => (

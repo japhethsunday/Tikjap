@@ -237,6 +237,9 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           const providerMessages: ChatMessageInput[] = [
             { role: "system", content: TIKJAP_IDENTITY_PROMPT },
           ];
+          if (upstream.system) {
+            providerMessages.push({ role: "system", content: upstream.system });
+          }
           if (contextInfo.parts.length) {
             providerMessages.push({ role: "system", content: contextInfo.parts.join("\n\n") });
           }
@@ -251,6 +254,20 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           if (!providerMessages.some((message) => message.role === "user")) {
             providerMessages.push({ role: "user", content: promptText || priorContent || "Hello" });
           }
+          // Vision-capable tiers receive actual image content for the current
+          // message; text-only tiers keep the plain-text history.
+          const currentImages = model.capabilities.vision ? await loadImageParts(user.id, attachmentRefs) : [];
+          if (currentImages.length && providerMessages.length && providerMessages[providerMessages.length - 1].role === "user") {
+            const last = providerMessages[providerMessages.length - 1];
+            const baseText = typeof last.content === "string" ? last.content : "";
+            providerMessages[providerMessages.length - 1] = {
+              role: "user",
+              content: [
+                { type: "text", text: baseText || "Analyze the attached image(s)." },
+                ...currentImages,
+              ],
+            };
+          }
 
           try {
             let streamed = "";
@@ -258,7 +275,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
             for await (const part of nimProvider.streamChat({
               model: upstream.model,
               messages: providerMessages,
-              maxTokens: Math.min(model.maxOutputTokens, 8_000),
+              maxTokens: Math.min(model.maxOutputTokens, upstream.maxTokens ?? 8_000),
               temperature: upstream.temperature ?? 0.7,
               topP: upstream.topP ?? 0.95,
               thinking: upstream.thinking,
@@ -579,6 +596,28 @@ function messageOf(error: unknown): string {
     return error.message;
   }
   return "Something went wrong.";
+}
+
+const MAX_IMAGES_PER_MESSAGE = 3;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** Loads image attachments as inline data URLs for vision-capable models. */
+async function loadImageParts(userId: string, attachments: AttachmentRef[]): Promise<Array<{ type: "image_url"; image_url: { url: string } }>> {
+  const images = attachments.filter((a) => (a.mimeType ?? "").startsWith("image/")).slice(0, MAX_IMAGES_PER_MESSAGE);
+  const parts: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+  for (const image of images) {
+    if (image.size > MAX_IMAGE_BYTES) continue;
+    try {
+      const { buffer } = await readFileContent(userId, image.fileId);
+      parts.push({
+        type: "image_url",
+        image_url: { url: `data:${image.mimeType};base64,${buffer.toString("base64")}` },
+      });
+    } catch {
+      // Skip unreadable images rather than failing the whole generation.
+    }
+  }
+  return parts;
 }
 
 function sleep(ms: number): Promise<void> {

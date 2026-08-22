@@ -1,6 +1,16 @@
+export interface ImagePart {
+  type: "image_url";
+  image_url: { url: string };
+}
+
+export interface TextPart {
+  type: "text";
+  text: string;
+}
+
 export interface ChatMessageInput {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | Array<TextPart | ImagePart>;
 }
 
 export interface UpstreamRequest {
