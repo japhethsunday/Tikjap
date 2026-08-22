@@ -11,15 +11,25 @@ function localId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/**
+ * Chronological order: oldest first. Ties (same-millisecond timestamps from
+ * optimistic inserts) fall back to role order — a user message always sorts
+ * before the assistant reply it triggered — then stable insertion order.
+ */
+function compareMessages(a: ChatMessage, b: ChatMessage): number {
+  const byTime = a.createdAt.localeCompare(b.createdAt);
+  if (byTime !== 0) return byTime;
+  const rank = (message: ChatMessage) => (message.role === "assistant" ? 1 : 0);
+  return rank(a) - rank(b);
+}
+
 function mergeMessages(server: ChatMessage[], pending: ChatMessage[], hidden: Set<string>): ChatMessage[] {
   const byId = new Map<string, ChatMessage>();
   for (const message of server) byId.set(message.id, message);
   for (const message of pending) byId.set(message.id, message); // pending wins
-  const merged = Array.from(byId.values()).filter((m) => !hidden.has(m.id));
-  return merged.sort((a, b) => {
-    const time = a.createdAt.localeCompare(b.createdAt);
-    return time !== 0 ? time : a.id.localeCompare(b.id);
-  });
+  return Array.from(byId.values())
+    .filter((m) => !hidden.has(m.id))
+    .sort(compareMessages);
 }
 
 export interface UseChatOptions {
@@ -113,6 +123,9 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
 
       const continuing = Boolean(request.continueFromMessageId);
       let streamAssistantId = localId("assistant");
+      // Monotonic client timestamps: the assistant placeholder must always sort
+      // strictly after the user message it responds to, even within the same ms.
+      const nowMs = Date.now();
 
       const userMessage: ChatMessage | null =
         request.regenerateMessageId || continuing
@@ -127,7 +140,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
               attachments: request.attachmentIds.length
                 ? (request.attachmentIds.map((id) => ({ fileId: id, name: "", size: 0, mimeType: "" }) as AttachmentRef) as AttachmentRef[])
                 : undefined,
-              createdAt: new Date().toISOString(),
+              createdAt: new Date(nowMs).toISOString(),
             };
 
       let seedContent = "";
@@ -144,7 +157,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         content: seedContent,
         status: "streaming",
         model: modelId,
-        createdAt: new Date().toISOString(),
+        createdAt: new Date(nowMs + 1).toISOString(),
       };
 
       if (request.regenerateMessageId) {

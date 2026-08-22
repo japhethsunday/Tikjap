@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Archive,
   ArchiveRestore,
+  ArrowDown,
   Bot,
   Columns3,
   Download,
@@ -81,10 +82,31 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
   });
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  const nearBottomRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+    nearBottomRef.current = true;
+    setShowJumpToLatest(false);
+  };
+
+  useEffect(() => {
+    if (nearBottomRef.current) {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
   }, [chat.visibleMessages, chat.isStreaming]);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    nearBottomRef.current = distance < 120;
+    setShowJumpToLatest(distance >= 240);
+  };
 
   const handleSend = async (content: string, attachmentIds: string[]) => {
     if (!conversationId) {
@@ -232,7 +254,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
         </div>
       ) : null}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={handleScroll} className="relative min-h-0 flex-1 overflow-y-auto">
         {isLoadingMessages ? (
           <div className="mx-auto w-full max-w-3xl space-y-6 px-6 py-8">
             <Skeleton className="h-16 w-2/3" />
@@ -242,26 +264,39 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
         ) : chat.visibleMessages.length === 0 && !chat.isStreaming ? (
           <ChatEmptyState onPick={(prompt) => void handleSend(prompt, [])} />
         ) : (
-          <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 sm:px-6">
-            {chat.visibleMessages.map((message) => (
-              <MessageItem
-                key={message.id}
-                message={message}
-                conversationId={conversationId}
-                onRegenerate={chat.regenerate}
-                onContinue={chat.continueMessage}
-                onEdit={chat.editAndResend}
-                showTimestamp={showTimestamps}
-              />
-            ))}
-            {chat.error && !chat.isStreaming ? (
-              <div className="flex justify-center">
-                <Button variant="secondary" size="sm" onClick={chat.retryLast}>
-                  Retry last message
-                </Button>
-              </div>
+          <>
+            <div className="mx-auto w-full max-w-3xl space-y-8 px-4 py-6 sm:px-6">
+              {chat.visibleMessages.map((message) => (
+                <MessageItem
+                  key={message.id}
+                  message={message}
+                  conversationId={conversationId}
+                  onRegenerate={chat.regenerate}
+                  onContinue={chat.continueMessage}
+                  onEdit={chat.editAndResend}
+                  onRetry={chat.retryLast}
+                  showTimestamp={showTimestamps}
+                />
+              ))}
+              {chat.error && !chat.isStreaming ? (
+                <div className="flex justify-center">
+                  <Button variant="secondary" size="sm" onClick={chat.retryLast}>
+                    Retry last message
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+            {showJumpToLatest ? (
+              <button
+                type="button"
+                onClick={() => scrollToBottom()}
+                className="sticky bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-line bg-canvas px-3.5 py-1.5 text-xs font-medium text-fg shadow-lg transition-colors hover:bg-surface"
+              >
+                <ArrowDown className="h-3.5 w-3.5" aria-hidden />
+                Scroll to latest
+              </button>
             ) : null}
-          </div>
+          </>
         )}
       </div>
 

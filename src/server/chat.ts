@@ -33,6 +33,7 @@ import {
 import { createServiceClient } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModel, defaultModel, getUpstream } from "./models";
+import { TIKJAP_IDENTITY_PROMPT } from "./identity";
 import { nimProvider } from "./providers/nim";
 import { ChatMessageInput, ProviderError, PROVIDER_DOWN_MESSAGE } from "./providers/types";
 import { assertWithinLimits, recordRequest, recordUsage } from "./usage";
@@ -233,7 +234,9 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           } catch {
             history = [];
           }
-          const providerMessages: ChatMessageInput[] = [];
+          const providerMessages: ChatMessageInput[] = [
+            { role: "system", content: TIKJAP_IDENTITY_PROMPT },
+          ];
           if (contextInfo.parts.length) {
             providerMessages.push({ role: "system", content: contextInfo.parts.join("\n\n") });
           }

@@ -78,6 +78,7 @@ function UserMessage({
 
   return (
     <div className="group flex flex-col items-end gap-1.5">
+      <span className="px-1 text-[11px] font-medium text-muted">You</span>
       <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-[15px] leading-relaxed text-primary-fg sm:max-w-[70%]">
         <p className="whitespace-pre-wrap">{message.content}</p>
         <AttachmentList message={message} />
@@ -105,12 +106,14 @@ function AssistantMessage({
   conversationId,
   onRegenerate,
   onContinue,
+  onRetry,
   showTimestamp,
 }: {
   message: ChatMessage;
   conversationId?: string;
   onRegenerate: (messageId: string) => void;
   onContinue: (messageId: string) => void;
+  onRetry?: () => void;
   showTimestamp: boolean;
 }) {
   const isStreaming = message.status === "streaming";
@@ -146,16 +149,29 @@ function AssistantMessage({
       <div className="flex items-start gap-3">
         <Avatar name="Tikjap AI" className="mt-1" />
         <div className="min-w-0 max-w-full sm:max-w-[85%]">
-          <div className={cn("rounded-2xl rounded-tl-md bg-surface px-4 py-2.5", isError && "border border-danger/25 bg-danger/5")}>
+          <span className="mb-1 block text-[11px] font-semibold tracking-wide text-fg">Tikjap AI</span>
+          <div className={cn("rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-2.5", isError && "border-danger/25 bg-danger/5")}>
             {isError ? (
-              <div className="flex items-start gap-2 text-danger">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-                <p className="text-sm">{message.content || "The response failed. You can try again below."}</p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2 text-danger">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                  <p className="text-sm">{message.content || "Unable to complete this response."}</p>
+                </div>
+                {onRetry ? (
+                  <button
+                    type="button"
+                    onClick={onRetry}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-xs font-medium text-fg transition-colors hover:bg-canvas"
+                  >
+                    <RefreshCw className="h-3 w-3" aria-hidden />
+                    Retry
+                  </button>
+                ) : null}
               </div>
             ) : message.content ? (
               <Markdown content={message.content} />
             ) : (
-              <p className="text-muted">Thinking…</p>
+              <p className="text-muted">Tikjap AI is thinking…</p>
             )}
             {isStreaming ? <span className="tk-cursor ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 rounded bg-muted align-middle" aria-hidden /> : null}
           </div>
@@ -254,6 +270,7 @@ export function MessageItem({
   onRegenerate,
   onContinue,
   onEdit,
+  onRetry,
   showTimestamp,
 }: {
   message: ChatMessage;
@@ -261,6 +278,7 @@ export function MessageItem({
   onRegenerate: (messageId: string) => void;
   onContinue: (messageId: string) => void;
   onEdit: (messageId: string, content: string) => void;
+  onRetry?: () => void;
   showTimestamp: boolean;
 }) {
   if (message.role === "user") {
@@ -272,6 +290,7 @@ export function MessageItem({
       conversationId={conversationId}
       onRegenerate={onRegenerate}
       onContinue={onContinue}
+      onRetry={onRetry}
       showTimestamp={showTimestamp}
     />
   );
