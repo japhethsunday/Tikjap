@@ -51,3 +51,52 @@ export function getModel(modelId: string): AIModel | undefined {
 export function defaultModel(): AIModel {
   return MODEL_CATALOG.find((model) => model.isDefault) ?? MODEL_CATALOG[0];
 }
+
+/**
+ * Internal inference routing. Tikjap model ids are the only public surface —
+ * these upstream ids are infrastructure details resolved server-side and are
+ * never exposed through any API response. Swapping an entry here re-points a
+ * Tikjap model at different infrastructure without touching the frontend.
+ */
+export interface UpstreamModelConfig {
+  provider: "nim";
+  model: string;
+  temperature?: number;
+  topP?: number;
+  thinking?: boolean;
+}
+
+export const MODEL_ROUTING: Record<string, UpstreamModelConfig> = {
+  // NOTE: "deepseek-ai/deepseek-v4-flash-0731" was verified unreachable
+  // (connection timeout) on 2026-08-22; swap it back in here if it returns.
+  "tikja-mini": {
+    provider: "nim",
+    model: "nvidia/nemotron-3.5-lightning-30b-a3b",
+    temperature: 0.8,
+    topP: 0.95,
+  },
+  "tikja-1": {
+    provider: "nim",
+    model: "nvidia/nemotron-3.5-lightning-30b-a3b",
+    temperature: 1,
+    topP: 0.95,
+    thinking: true,
+  },
+  "tikja-1-pro": {
+    provider: "nim",
+    model: "nvidia/nemotron-3-ultra-550b-a55b",
+    temperature: 1,
+    topP: 0.95,
+    thinking: true,
+  },
+  "tikja-vision": {
+    provider: "nim",
+    model: "meta/muse-glimmer-30b",
+    temperature: 1,
+    topP: 0.95,
+  },
+};
+
+export function getUpstream(modelId: string): UpstreamModelConfig | undefined {
+  return MODEL_ROUTING[modelId];
+}

@@ -32,7 +32,9 @@ import {
 } from "./store";
 import { createServiceClient } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getModel, defaultModel } from "./models";
+import { getModel, defaultModel, getUpstream } from "./models";
+import { nimProvider } from "./providers/nim";
+import { ChatMessageInput, ProviderError, PROVIDER_DOWN_MESSAGE } from "./providers/types";
 import { assertWithinLimits, recordRequest, recordUsage } from "./usage";
 import { readFileContent } from "./files";
 import { titleFromContent, formatBytes } from "@/lib/utils";
@@ -207,26 +209,97 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         });
         if (params.assistantId) await incrementAssistantRunsSafe(user.id, params.assistantId);
 
-        let continuation = buildDemoResponse(promptText, model, attachmentRefs, params.regenerateMessageId !== undefined, contextInfo.parts);
-        if (csvSection) continuation = `${continuation}\n\n${csvSection}`;
-
-        const plan = await getProfilePlan(user.id).catch(() => "free" as const);
-        const cap = PLAN_OUTPUT_CAPS[plan] ?? PLAN_OUTPUT_CAPS.free;
-        if (continuation.length > cap) {
-          continuation = `${continuation.slice(0, cap).replace(/\s+\S*$/, "")}\n\n*…truncated for your plan.*`;
-          send({ type: "notice", notice: "Output truncated to your plan's limit. Upgrade for longer replies." });
-        }
-
-        const fullText = priorContent ? `${priorContent}\n\n${continuation}` : continuation;
-        const tokens = continuation.match(/\S+\s*/g) ?? [continuation];
+        const upstream = getUpstream(model.id);
+        const gatewayConfigured = Boolean(
+          (process.env.AI_GATEWAY_API_KEY ?? process.env.NVIDIA_API_KEY ?? "").trim()
+        );
+        let fullText = "";
         let sentText = "";
 
-        for (const token of tokens) {
-          if (signal?.aborted) break;
-          if (!firstTokenAt) firstTokenAt = Date.now();
-          send({ type: "delta", content: token });
-          sentText += token;
-          await sleep(14 + (token.length % 9) * 2);
+        if (upstream && gatewayConfigured) {
+          // Real inference path: route through the internal provider, streaming
+          // normalized deltas. Upstream model ids never leave the server.
+          let history: Awaited<ReturnType<typeof storeListMessages>> = [];
+          try {
+            history = await storeListMessages(user.id, conversationId);
+          } catch {
+            history = [];
+          }
+          const providerMessages: ChatMessageInput[] = [];
+          if (contextInfo.parts.length) {
+            providerMessages.push({ role: "system", content: contextInfo.parts.join("\n\n") });
+          }
+          for (const message of history.slice(-16)) {
+            if (message.role === "system" || !message.content.trim()) continue;
+            if (message.id === assistantMessageId) continue;
+            providerMessages.push({
+              role: message.role === "assistant" ? "assistant" : "user",
+              content: message.content.slice(0, 12_000),
+            });
+          }
+          if (!providerMessages.some((message) => message.role === "user")) {
+            providerMessages.push({ role: "user", content: promptText || priorContent || "Hello" });
+          }
+
+          try {
+            let streamed = "";
+            for await (const part of nimProvider.streamChat({
+              model: upstream.model,
+              messages: providerMessages,
+              maxTokens: Math.min(model.maxOutputTokens, 8_000),
+              temperature: upstream.temperature ?? 0.7,
+              topP: upstream.topP ?? 0.95,
+              thinking: upstream.thinking,
+              signal,
+            })) {
+              if (signal?.aborted) break;
+              if (!part.delta) continue;
+              if (!firstTokenAt) firstTokenAt = Date.now();
+              streamed += part.delta;
+              sentText += part.delta;
+              send({ type: "delta", content: part.delta });
+            }
+            if (!streamed.trim()) {
+              throw new ProviderError("unavailable", 502, PROVIDER_DOWN_MESSAGE, "empty completion");
+            }
+            fullText = priorContent ? `${priorContent}\n\n${streamed}` : streamed;
+          } catch (error) {
+            const providerError = error instanceof ProviderError ? error : undefined;
+            console.error(
+              "[chat/provider]",
+              JSON.stringify({
+                model: model.id,
+                code: providerError?.code ?? "unknown",
+                detail: (providerError?.detail ?? String(error)).slice(0, 300),
+              })
+            );
+            await updateMessage(assistantMessageId, { status: "error" }, db).catch(() => undefined);
+            await recordRequest(user.id, model.id, { inputTokens: estimateTokens(promptText), outputTokens: 0 }, false).catch(() => undefined);
+            send({ type: "error", error: providerError?.userMessage ?? PROVIDER_DOWN_MESSAGE });
+            return;
+          }
+        } else {
+          // Reference backend — used only when no inference key is configured.
+          let continuation = buildDemoResponse(promptText, model, attachmentRefs, params.regenerateMessageId !== undefined, contextInfo.parts);
+          if (csvSection) continuation = `${continuation}\n\n${csvSection}`;
+
+          const plan = await getProfilePlan(user.id).catch(() => "free" as const);
+          const cap = PLAN_OUTPUT_CAPS[plan] ?? PLAN_OUTPUT_CAPS.free;
+          if (continuation.length > cap) {
+            continuation = `${continuation.slice(0, cap).replace(/\s+\S*$/, "")}\n\n*…truncated for your plan.*`;
+            send({ type: "notice", notice: "Output truncated to your plan's limit. Upgrade for longer replies." });
+          }
+
+          fullText = priorContent ? `${priorContent}\n\n${continuation}` : continuation;
+          const tokens = continuation.match(/\S+\s*/g) ?? [continuation];
+
+          for (const token of tokens) {
+            if (signal?.aborted) break;
+            if (!firstTokenAt) firstTokenAt = Date.now();
+            send({ type: "delta", content: token });
+            sentText += token;
+            await sleep(14 + (token.length % 9) * 2);
+          }
         }
 
         const latencyMs = Date.now() - startedAt;
