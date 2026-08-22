@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createServerClient, createServiceClient } from "./supabase";
+import { createServiceClient, createServerClient, createAPIServerClient } from "./supabase";
 import { HttpError } from "./errors";
 import { json, publicUser, requireUser, touchUserActivity, getSessionUser } from "./http";
 import { deleteAuthSessionsExcept, ensureProfile, getServerUser, iso, listAuthSessions } from "./store";
@@ -60,7 +60,8 @@ export async function handleSignup(request: Request): Promise<NextResponse> {
     throw new HttpError(500, "internal", "Could not create your account. Please try again.");
   }
 
-  const supabase = await createServerClient();
+  const response = NextResponse.next();
+  const supabase = createAPIServerClient(response);
   const { data: signIn, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
   if (signInError || !signIn.user) {
     // Account exists but session could not be established — treat like a fresh login.
@@ -72,11 +73,11 @@ export async function handleSignup(request: Request): Promise<NextResponse> {
     await ensureProfile(signIn.user.id, displayNameFrom(signIn.user));
     const retry = await getServerUser(signIn.user.id, signIn.user.email ?? email);
     if (!retry) throw new HttpError(500, "internal", "Could not load your account.");
-    await touchUserActivity(retry.id);
-    return json({ user: publicUser(retry) }, { status: 201 });
+    await touchUserActivity(retry.id).catch(() => undefined);
+    return json({ user: publicUser(retry) }, { response });
   }
   await touchUserActivity(user.id).catch(() => undefined);
-  return json({ user: publicUser(user) }, { status: 201 });
+  return json({ user: publicUser(user) }, { response });
 }
 
 export async function handleLogin(request: Request): Promise<NextResponse> {
@@ -85,7 +86,8 @@ export async function handleLogin(request: Request): Promise<NextResponse> {
   const email = normalizeEmail(body?.email ?? "");
   const password = body?.password ?? "";
 
-  const supabase = await createServerClient();
+  const response = NextResponse.next();
+  const supabase = createAPIServerClient(response);
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error || !data.user) {
     if (/not confirmed/i.test(error?.message ?? "")) {
@@ -101,13 +103,14 @@ export async function handleLogin(request: Request): Promise<NextResponse> {
     if (!user) throw new HttpError(500, "internal", "Could not load your account.");
   }
   await touchUserActivity(user.id);
-  return json({ user: publicUser(user) });
+  return json({ user: publicUser(user) }, { response });
 }
 
 export async function handleLogout(): Promise<NextResponse> {
-  const supabase = await createServerClient();
+  const response = NextResponse.next();
+  const supabase = createAPIServerClient(response);
   await supabase.auth.signOut().catch(() => undefined);
-  return json({ ok: true });
+  return json({ ok: true }, { response });
 }
 
 export async function handleSession(): Promise<NextResponse> {

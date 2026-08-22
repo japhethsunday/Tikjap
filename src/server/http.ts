@@ -4,8 +4,16 @@ import { HttpError } from "./errors";
 import { ensureProfile, getServerUser, touchProfileActivity, type ServerUser } from "./store";
 import type { ApiErrorCode } from "@/lib/api/errors";
 
-export function json<T>(payload: T, init: { status?: number; headers?: Record<string, string> } = {}): NextResponse {
-  return NextResponse.json(payload, init);
+export function json<T>(payload: T, init: { status?: number; headers?: Record<string, string>; response?: NextResponse } = {}): NextResponse {
+  const { response } = init as { response?: NextResponse; status?: number; headers?: Record<string, string> };
+  const { status, headers, ...restInit } = init;
+  const res = NextResponse.json(payload, { status, headers });
+  if (response) {
+    for (const cookie of response.cookies.getAll()) {
+      res.cookies.set(cookie.name, cookie.value, cookie);
+    }
+  }
+  return res;
 }
 
 export function apiError(
