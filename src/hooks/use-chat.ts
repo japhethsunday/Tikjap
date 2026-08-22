@@ -47,6 +47,8 @@ interface StreamRequest {
   regenerateMessageId?: string;
   removeFromMessageId?: string;
   continueFromMessageId?: string;
+  /** Explicit model override — used when a queued send must keep the model picked before navigation. */
+  modelId?: string;
 }
 
 export interface UseChatResult {
@@ -57,7 +59,7 @@ export interface UseChatResult {
   contextStats?: ContextStats;
   notice?: string;
   dismissNotice: () => void;
-  send: (content: string, attachmentIds?: string[]) => void;
+  send: (content: string, attachmentIds?: string[], options?: { modelId?: string }) => void;
   regenerate: (assistantMessageId: string) => void;
   continueMessage: (assistantMessageId: string) => void;
   editAndResend: (userMessageId: string, content: string) => void;
@@ -116,6 +118,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
   const runStream = useCallback(
     async (request: StreamRequest) => {
       if (!conversationId) return;
+      const requestModelId = request.modelId ?? modelId;
       const controller = new AbortController();
       abortRef.current = controller;
       setError(undefined);
@@ -136,7 +139,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
               role: "user",
               content: request.content,
               status: "complete",
-              model: modelId,
+              model: requestModelId,
               attachments: request.attachmentIds.length
                 ? (request.attachmentIds.map((id) => ({ fileId: id, name: "", size: 0, mimeType: "" }) as AttachmentRef) as AttachmentRef[])
                 : undefined,
@@ -156,7 +159,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         role: "assistant",
         content: seedContent,
         status: "streaming",
-        model: modelId,
+        model: requestModelId,
         createdAt: new Date(nowMs + 1).toISOString(),
       };
 
@@ -184,7 +187,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
           conversationId,
           {
             content: request.content,
-            modelId,
+            modelId: requestModelId,
             attachments: request.attachmentIds.length ? request.attachmentIds : undefined,
             regenerate: Boolean(request.regenerateMessageId),
             regenerateMessageId: request.regenerateMessageId,
@@ -275,12 +278,12 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
   );
 
   const send = useCallback(
-    (content: string, attachmentIds: string[] = []) => {
+    (content: string, attachmentIds: string[] = [], options: { modelId?: string } = {}) => {
       if (!conversationId) return;
       if (!content.trim() && !attachmentIds.length) return;
       const trimmed = content.trim();
       lastRequestRef.current = { content: trimmed, attachmentIds, conversationId };
-      void runStream({ content: trimmed, attachmentIds });
+      void runStream({ content: trimmed, attachmentIds, modelId: options.modelId });
     },
     [conversationId, runStream]
   );

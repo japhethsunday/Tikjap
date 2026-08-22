@@ -40,7 +40,7 @@ import { ChatEmptyState } from "./empty-state";
 import { Dropdown, DropdownItem, Dialog } from "@/components/ui/overlays";
 import { Button, Input, Skeleton } from "@/components/ui";
 
-let outbox: { text: string; attachmentIds: string[] } | null = null;
+let outbox: { text: string; attachmentIds: string[]; modelId: string } | null = null;
 
 export function ChatView({ conversationId }: { conversationId?: string }) {
   const router = useRouter();
@@ -125,7 +125,8 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
       try {
         const { conversation: created } = await createConversation.mutateAsync({ modelId: effectiveModelId });
         router.replace(`/chat/${created.id}`);
-        outbox = { text: content, attachmentIds };
+        // Carry the picked model across the remount — state resets on navigation.
+        outbox = { text: content, attachmentIds, modelId: effectiveModelId };
       } catch (error) {
         toast({ kind: "error", title: "Could not start a conversation", description: toErrorMessage(error) });
       }
@@ -136,9 +137,9 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
 
   useEffect(() => {
     if (conversationId && outbox) {
-      const { text, attachmentIds } = outbox;
+      const { text, attachmentIds, modelId: outboxModelId } = outbox;
       outbox = null;
-      chat.send(text, attachmentIds);
+      chat.send(text, attachmentIds, { modelId: outboxModelId });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
