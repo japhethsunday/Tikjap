@@ -32,6 +32,7 @@ export function useConversation(conversationId: string) {
   return useQuery({
     queryKey: ["conversation", conversationId],
     queryFn: () => api.conversations.get(conversationId),
+    enabled: Boolean(conversationId),
   });
 }
 

@@ -103,7 +103,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
           <Menu className="h-5 w-5" aria-hidden />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-fg">{conversation?.conversation.title ?? "New chat"}</p>
+          <p className="truncate text-sm font-medium text-fg">{conversation?.conversation?.title ?? "New chat"}</p>
         </div>
         <ModelSelect models={models} value={effectiveModelId} onChange={setModelId} loading={modelsData === undefined} />
         {assistants.length > 0 ? (
