@@ -6,6 +6,7 @@ import { ArrowRight, Sparkles, FileText, Zap, MessageSquare, ShieldCheck, Check 
 import { api } from "@/lib/api";
 import type { PublicInfo } from "@/lib/types";
 import { Button } from "@/components/ui";
+import { LogoMark } from "@/components/logo";
 
 const FEATURES = [
   {
@@ -50,7 +51,7 @@ export default function LandingPage() {
     <main className="flex-1">
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
         <div className="flex items-center gap-2 text-fg">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white">T</div>
+          <LogoMark size={30} />
           <span className="font-semibold">{name}</span>
         </div>
         <nav className="flex items-center gap-2" aria-label="Primary">

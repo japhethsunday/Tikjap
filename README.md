@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="public/logo.svg" alt="Tikjap AI logo" width="220" />
+
 # Tikjap AI
 
 **A fast, production-ready AI assistant built with Next.js**
