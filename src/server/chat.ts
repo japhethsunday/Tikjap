@@ -108,6 +108,13 @@ export function startGeneration(params: GenerationParams): GenerationResult {
   const model = getModel(requestedModelId) ?? defaultModel();
   const fellBack = !getModel(requestedModelId);
 
+  // request.signal does not fire on client disconnects in route handlers, so
+  // generation stop is driven by this controller: stream cancel(), enqueue
+  // failures, or the upstream request signal all trip it.
+  const stopController = new AbortController();
+  if (signal?.aborted) stopController.abort();
+  signal?.addEventListener("abort", () => stopController.abort(), { once: true });
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const db = createServiceClient();
@@ -115,7 +122,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
         } catch {
-          // stream already closed
+          stopController.abort();
         }
       };
 
@@ -250,9 +257,9 @@ export function startGeneration(params: GenerationParams): GenerationResult {
               temperature: upstream.temperature ?? 0.7,
               topP: upstream.topP ?? 0.95,
               thinking: upstream.thinking,
-              signal,
+              signal: stopController.signal,
             })) {
-              if (signal?.aborted) break;
+              if (stopController.signal.aborted) break;
               if (!part.delta) continue;
               if (!firstTokenAt) firstTokenAt = Date.now();
               streamed += part.delta;
@@ -294,7 +301,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           const tokens = continuation.match(/\S+\s*/g) ?? [continuation];
 
           for (const token of tokens) {
-            if (signal?.aborted) break;
+            if (stopController.signal.aborted) break;
             if (!firstTokenAt) firstTokenAt = Date.now();
             send({ type: "delta", content: token });
             sentText += token;
@@ -307,7 +314,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         const outputTokens = estimateTokens(fullText);
         const usage: MessageUsage = { inputTokens, outputTokens };
 
-        if (!signal?.aborted) {
+        if (!stopController.signal.aborted) {
           await updateMessage(assistantMessageId, { content: fullText, status: "complete", usage, latencyMs }, db);
           await recordUsage(user.id, usage, params.regenerateMessageId ? 0 : 1);
           await recordRequest(user.id, model.id, usage, true);
@@ -335,6 +342,9 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           // stream already closed by the client
         }
       }
+    },
+    cancel() {
+      stopController.abort();
     },
   });
 
