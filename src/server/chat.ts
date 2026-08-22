@@ -139,7 +139,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         await assertWithinLimits(user.id);
 
         if (fellBack && requestedModelId) {
-          send({ type: "notice", notice: `Model "${requestedModelId}" is unavailable; used ${model.name} instead.` });
+          send({ type: "notice", notice: `The selected model is unavailable; used ${model.name} instead.` });
         }
 
         let priorContent = "";
