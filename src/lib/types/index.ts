@@ -29,6 +29,11 @@ export interface Conversation {
   pinned?: boolean;
   archived?: boolean;
   projectId?: string | null;
+  tags?: string[];
+  color?: string;
+  incognito?: boolean;
+  sortOrder?: number | null;
+  summary?: string | null;
 }
 
 export type MessageRole = "user" | "assistant" | "system";
@@ -55,6 +60,8 @@ export interface ChatMessage {
   model?: string;
   attachments?: AttachmentRef[];
   usage?: MessageUsage;
+  bookmarked?: boolean;
+  latencyMs?: number;
   createdAt: string;
 }
 
@@ -150,6 +157,8 @@ export interface ChatRequest {
   attachments?: string[];
   regenerate?: boolean;
   regenerateMessageId?: string;
+  continue?: boolean;
+  continueMessageId?: string;
   removeFromMessageId?: string;
   assistantId?: string;
 }
@@ -159,6 +168,11 @@ export interface Project {
   name: string;
   description: string;
   instructions: string;
+  icon?: string;
+  archived?: boolean;
+  defaultModelId?: string | null;
+  memoryEnabled?: boolean;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -168,6 +182,10 @@ export type PlanId = "free" | "pro" | "team";
 export interface Memory {
   id: string;
   content: string;
+  priority?: number;
+  projectId?: string | null;
+  status?: "approved" | "pending";
+  source?: "manual" | "auto";
   createdAt: string;
 }
 
@@ -176,6 +194,11 @@ export interface Assistant {
   name: string;
   instructions: string;
   model: string;
+  avatar?: string;
+  starters?: string[];
+  shareToken?: string | null;
+  versions?: unknown[];
+  runs?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -184,17 +207,90 @@ export interface SavedPrompt {
   id: string;
   title: string;
   body: string;
+  category?: string;
+  tags?: string[];
+  runs?: number;
   createdAt: string;
 }
 
+export interface ProjectSource {
+  id: string;
+  title: string;
+  url?: string | null;
+  chars: number;
+  createdAt: string;
+}
+
+export interface ActivityEntry {
+  id: string;
+  action: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface Schedule {
+  id: string;
+  promptId: string;
+  conversationId: string | null;
+  modelId: string;
+  cadence: string;
+  nextRun: string;
+  lastRun: string | null;
+  active: boolean;
+}
+
+export interface ShareLink {
+  token: string;
+  expiresAt: string | null;
+  protected: boolean;
+  createdAt: string;
+}
+
+export interface SearchHit {
+  messageId: string;
+  conversationId: string;
+  conversationTitle: string;
+  role: string;
+  snippet: string;
+  createdAt: string;
+}
+
+export interface ComparisonResult {
+  modelId: string;
+  modelName: string;
+  content: string;
+  latencyMs: number;
+}
+
+export interface StorageUsage {
+  usedBytes: number;
+  capBytes: number;
+  fileCount: number;
+}
+
+export interface SharedConversation {
+  title: string;
+  messages: Array<{ role: string; content: string; createdAt: string }>;
+}
+
+export interface ContextStats {
+  messages: number;
+  memories: number;
+  sources: number;
+  estimatedTokens: number;
+}
+
 export interface StreamChunk {
-  type: "delta" | "done" | "error" | "usage";
+  type: "delta" | "done" | "error" | "usage" | "context" | "notice";
   content?: string;
   messageId?: string;
   usage?: MessageUsage;
   error?: string;
   title?: string;
   status?: MessageStatus;
+  context?: ContextStats;
+  notice?: string;
+  latencyMs?: number;
 }
 
 export interface PublicInfo {

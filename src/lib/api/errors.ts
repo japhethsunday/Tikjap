@@ -3,6 +3,7 @@ export type ApiErrorCode =
   | "unauthorized"
   | "forbidden"
   | "not_found"
+  | "gone"
   | "rate_limit"
   | "conflict"
   | "unsupported_file"

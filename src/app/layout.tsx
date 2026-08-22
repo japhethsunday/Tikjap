@@ -20,6 +20,9 @@ export const metadata: Metadata = {
   },
   description:
     "A fast, private AI assistant with streaming responses, file uploads, and conversation history.",
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/icon.svg" },
+  appleWebApp: { capable: true, title: "Tikjap AI", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {

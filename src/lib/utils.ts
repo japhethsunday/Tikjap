@@ -101,3 +101,7 @@ export function isValidHttpUrl(value: string): boolean {
     return false;
   }
 }
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / 4));
+}

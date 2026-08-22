@@ -9,7 +9,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   return withHandler(async () => {
     const { user } = await requireUser();
     const { id } = await context.params;
-    const body = await readJson<{ name?: string; instructions?: string; model?: string }>(request);
+    const body = await readJson<{ name?: string; instructions?: string; model?: string; avatar?: string; starters?: string[] }>(request);
     return { assistant: await updateAssistant(user.id, id, body) };
   });
 }

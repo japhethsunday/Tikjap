@@ -1,21 +1,28 @@
 import { HttpError } from "./errors";
 import {
   createConversation as storeCreateConversation,
+  createMemory as storeCreateMemory,
   deleteConversation as storeDeleteConversation,
   deleteMessagesFrom,
   getAssistant,
+  getProfilePlan,
   getProject,
   getConversation as storeGetConversation,
   getConversationRow,
   getFile,
   getLastUserMessage,
+  getSavedPrompt,
   getMessageRow,
+  incrementAssistantRuns,
   insertMessage,
   listConversations as storeListConversations,
   listMemories,
   listMessages as storeListMessages,
+  messageCountFor,
   renameConversation as storeRenameConversation,
+  retrieveFromSources,
   uid,
+  updateConversationFields,
   updateConversation,
   updateConversationRow,
   updateMessage,
@@ -27,9 +34,15 @@ import { createServiceClient } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModel, defaultModel } from "./models";
 import { assertWithinLimits, recordRequest, recordUsage } from "./usage";
+import { readFileContent } from "./files";
 import { titleFromContent, formatBytes } from "@/lib/utils";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "@/lib/constants";
-import type { AIModel, AttachmentRef, MessageUsage, StreamChunk } from "@/lib/types";
+import type {
+  AIModel,
+  AttachmentRef,
+  MessageUsage,
+  StreamChunk,
+} from "@/lib/types";
 
 export async function listConversations(userId: string, options: ListConversationsOptions = {}) {
   return storeListConversations(userId, options);
@@ -72,6 +85,7 @@ export interface GenerationParams {
   attachmentIds?: string[];
   regenerateMessageId?: string;
   removeFromMessageId?: string;
+  continueFromMessageId?: string;
   assistantId?: string;
   signal?: AbortSignal;
 }
@@ -81,14 +95,16 @@ export interface GenerationResult {
   assistantMessageId: string;
 }
 
+const PLAN_OUTPUT_CAPS: Record<string, number> = { free: 1200, pro: 5000, team: 16000 };
+
 export function startGeneration(params: GenerationParams): GenerationResult {
-  const { user, conversationId, modelId, signal } = params;
+  const { user, conversationId, signal } = params;
   const content = params.content.trim();
+  const requestedModelId = params.modelId;
   const encoder = new TextEncoder();
 
-  if (!content) throw new HttpError(400, "validation", "Message cannot be empty.");
-  const model = getModel(modelId) ?? defaultModel();
-  if (!getModel(modelId)) throw new HttpError(400, "validation", "Unknown model.");
+  const model = getModel(requestedModelId) ?? defaultModel();
+  const fellBack = !getModel(requestedModelId);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -105,6 +121,8 @@ export function startGeneration(params: GenerationParams): GenerationResult {
       let promptText = content;
       let attachmentRefs: AttachmentRef[] = [];
       let title: string | undefined;
+      const startedAt = Date.now();
+      let firstTokenAt = 0;
 
       try {
         let conversation: ConversationRow;
@@ -118,15 +136,27 @@ export function startGeneration(params: GenerationParams): GenerationResult {
 
         await assertWithinLimits(user.id);
 
+        if (fellBack && requestedModelId) {
+          send({ type: "notice", notice: `Model "${requestedModelId}" is unavailable; used ${model.name} instead.` });
+        }
+
+        let priorContent = "";
+        let csvSection = "";
         if (params.removeFromMessageId) {
           await deleteMessagesFrom(conversationId, params.removeFromMessageId, db);
         }
 
-        if (params.regenerateMessageId) {
+        if (params.continueFromMessageId) {
+          const target = await getMessageRow(conversationId, params.continueFromMessageId, db);
+          if (!target || target.role !== "assistant") throw new HttpError(404, "not_found", "Message not found.");
+          priorContent = target.content;
+          assistantMessageId = target.id;
+          attachmentRefs = target.attachments ?? [];
+          const preceding = await getLastUserMessage(conversationId, db);
+          if (preceding) promptText = preceding.content;
+        } else if (params.regenerateMessageId) {
           const target = await getMessageRow(conversationId, params.regenerateMessageId, db);
-          if (!target || target.role !== "assistant") {
-            throw new HttpError(404, "not_found", "Message not found.");
-          }
+          if (!target || target.role !== "assistant") throw new HttpError(404, "not_found", "Message not found.");
           await deleteMessagesFrom(conversationId, params.regenerateMessageId, db);
           const preceding = await getLastUserMessage(conversationId, db);
           if (preceding) {
@@ -152,43 +182,72 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           }
         }
 
-        const assistant = await insertMessage(
-          conversationId,
-          { role: "assistant", content: "", status: "streaming", model: model.id },
-          db
-        );
-        assistantMessageId = assistant.id;
+        if (!assistantMessageId) {
+          const assistant = await insertMessage(
+            conversationId,
+            { role: "assistant", content: "", status: "streaming", model: model.id },
+            db
+          );
+          assistantMessageId = assistant.id;
+        }
         await updateConversation(conversationId, { model: model.id }, db);
 
-        const fullText = buildDemoResponse(
-          promptText,
-          model,
-          attachmentRefs,
-          params.regenerateMessageId !== undefined,
-          await resolveGenerationContext(user.id, conversation, params.assistantId)
-        );
-        const tokens = fullText.match(/\S+\s*/g) ?? [fullText];
-        const inputTokens = estimateTokens(promptText);
-        const outputTokens = estimateTokens(fullText);
-        const usage: MessageUsage = { inputTokens, outputTokens };
+        const contextInfo = await resolveGenerationContext(user.id, conversation, params.assistantId, promptText || priorContent);
+        if (attachmentRefs.length) {
+          csvSection = await buildCsvSection(user.id, attachmentRefs);
+        }
+        send({
+          type: "context",
+          context: {
+            messages: contextInfo.messageCount,
+            memories: contextInfo.memoryCount,
+            sources: contextInfo.sourceCount,
+            estimatedTokens: estimateTokens(promptText) + estimateTokens(contextInfo.parts.join("\n")),
+          },
+        });
+        if (params.assistantId) await incrementAssistantRunsSafe(user.id, params.assistantId);
+
+        let continuation = buildDemoResponse(promptText, model, attachmentRefs, params.regenerateMessageId !== undefined, contextInfo.parts);
+        if (csvSection) continuation = `${continuation}\n\n${csvSection}`;
+
+        const plan = await getProfilePlan(user.id).catch(() => "free" as const);
+        const cap = PLAN_OUTPUT_CAPS[plan] ?? PLAN_OUTPUT_CAPS.free;
+        if (continuation.length > cap) {
+          continuation = `${continuation.slice(0, cap).replace(/\s+\S*$/, "")}\n\n*…truncated for your plan.*`;
+          send({ type: "notice", notice: "Output truncated to your plan's limit. Upgrade for longer replies." });
+        }
+
+        const fullText = priorContent ? `${priorContent}\n\n${continuation}` : continuation;
+        const tokens = continuation.match(/\S+\s*/g) ?? [continuation];
         let sentText = "";
 
         for (const token of tokens) {
           if (signal?.aborted) break;
+          if (!firstTokenAt) firstTokenAt = Date.now();
           send({ type: "delta", content: token });
           sentText += token;
           await sleep(14 + (token.length % 9) * 2);
         }
 
+        const latencyMs = Date.now() - startedAt;
+        const inputTokens = estimateTokens(promptText);
+        const outputTokens = estimateTokens(fullText);
+        const usage: MessageUsage = { inputTokens, outputTokens };
+
         if (!signal?.aborted) {
-          await updateMessage(assistantMessageId, { content: fullText, status: "complete", usage }, db);
+          await updateMessage(assistantMessageId, { content: fullText, status: "complete", usage, latencyMs }, db);
           await recordUsage(user.id, usage, params.regenerateMessageId ? 0 : 1);
           await recordRequest(user.id, model.id, usage, true);
           send({ type: "usage", usage });
-          send({ type: "done", messageId: assistantMessageId, title });
+          if (!conversation.incognito) {
+            await maybeAutoSummarize(user.id, conversationId, promptText, db).catch(() => undefined);
+            await extractMemoriesFromMessage(user.id, promptText, db).catch(() => undefined);
+          }
+          send({ type: "done", messageId: assistantMessageId, title, latencyMs });
         } else {
-          await updateMessage(assistantMessageId, { content: sentText, status: "stopped" }, db);
-          send({ type: "done", messageId: assistantMessageId, title, status: "stopped" });
+          const stoppedContent = priorContent ? `${priorContent}\n\n${sentText}` : sentText;
+          await updateMessage(assistantMessageId, { content: stoppedContent, status: "stopped", latencyMs }, db);
+          send({ type: "done", messageId: assistantMessageId, title, status: "stopped", latencyMs });
         }
       } catch (error) {
         if (assistantMessageId) {
@@ -224,15 +283,18 @@ async function resolveAttachments(userId: string, attachmentIds?: string[], db: 
 
 /**
  * Gathers user-owned context for a generation: custom assistant instructions,
- * project instructions (when the conversation lives in a project), and the
- * user's saved memories. Everything is owner-scoped; nothing crosses accounts.
+ * project instructions, keyword-retrieved project knowledge excerpts, and the
+ * user's approved memories. Everything is owner-scoped.
  */
 async function resolveGenerationContext(
   userId: string,
   conversation: ConversationRow,
-  assistantId?: string
-): Promise<string[]> {
+  assistantId?: string,
+  promptText = ""
+): Promise<{ parts: string[]; memoryCount: number; sourceCount: number; messageCount: number }> {
   const parts: string[] = [];
+  let memoryCount = 0;
+  let sourceCount = 0;
   try {
     if (assistantId) {
       const assistant = await getAssistant(userId, assistantId);
@@ -245,15 +307,161 @@ async function resolveGenerationContext(
       if (project.instructions.trim()) {
         parts.push(`Project "${project.name}" instructions:\n${project.instructions.trim()}`);
       }
+      const hits = await retrieveFromSources(userId, conversation.project_id, promptText, 4);
+      sourceCount = hits.length;
+      if (hits.length) {
+        const excerpts = hits.map((hit) => `[${hit.title}]\n${hit.chunk}`).join("\n---\n");
+        parts.push(`Project knowledge excerpts:\n${excerpts}`);
+      }
     }
-    const memories = await listMemories(userId);
+    const memories = await listMemories(userId, { status: "approved" });
+    memoryCount = memories.length;
     if (memories.length) {
       parts.push(`Things to remember about the user:\n${memories.slice(0, 20).map((m) => `- ${m.content}`).join("\n")}`);
     }
+    const messageCount = await messageCountFor(conversation.id);
+    return { parts, memoryCount, sourceCount, messageCount };
   } catch (error) {
     console.error("[chat/context]", error instanceof Error ? error.message : error);
+    return { parts, memoryCount, sourceCount, messageCount: 0 };
   }
-  return parts;
+}
+
+async function incrementAssistantRunsSafe(userId: string, assistantId: string): Promise<void> {
+  try {
+    await incrementAssistantRuns(userId, assistantId);
+  } catch {
+    // non-fatal
+  }
+}
+
+async function maybeAutoSummarize(
+  userId: string,
+  conversationId: string,
+  latestPrompt: string,
+  db: SupabaseClient
+): Promise<void> {
+  const count = await messageCountFor(conversationId, db);
+  if (count === 0 || count % 10 !== 0) return;
+  const summary = `Discussion about "${summarizeTopic(latestPrompt)}" — ${count} messages so far.`;
+  await updateConversationFields(userId, conversationId, { summary }, db);
+}
+
+const MEMORY_PATTERNS: RegExp[] = [
+  /\bremember (?:that )?(.{5,300})/i,
+  /\bi prefer (.{3,200})/i,
+  /\bmy name is ([^.\n]{2,80})/i,
+];
+
+async function extractMemoriesFromMessage(userId: string, content: string, db: SupabaseClient): Promise<void> {
+  void db;
+  const candidates: string[] = [];
+  for (const pattern of MEMORY_PATTERNS) {
+    const match = content.match(pattern);
+    if (match?.[1]) candidates.push(match[1].trim().replace(/[.!?]+$/, ""));
+  }
+  if (!candidates.length) return;
+  const pending = await listMemories(userId, { status: "pending" });
+  let slots = Math.max(0, 3 - pending.length);
+  for (const candidate of candidates) {
+    if (slots <= 0) break;
+    await storeCreateMemory(userId, candidate, { priority: 1, status: "pending", source: "auto" });
+    slots -= 1;
+  }
+}
+
+async function buildCsvSection(userId: string, attachments: AttachmentRef[]): Promise<string> {
+  const csv = attachments.find(
+    (a) => (a.mimeType ?? "").includes("csv") || a.name.toLowerCase().endsWith(".csv")
+  );
+  if (!csv) return "";
+  try {
+    const { buffer } = await readFileContent(userId, csv.fileId);
+    const text = buffer.subarray(0, 20_000).toString("utf8");
+    const rows = text.split(/\r?\n/).filter(Boolean).slice(0, 8);
+    if (!rows.length) return "";
+    const parseRow = (line: string) =>
+      line.split(",").slice(0, 6).map((cell) => escapePipe(cell.trim().slice(0, 40)));
+    const header = parseRow(rows[0]);
+    const lines = [
+      `| ${header.join(" | ")} |`,
+      `| ${header.map(() => "---").join(" | ")} |`,
+      ...rows.slice(1).map((row) => `| ${parseRow(row).join(" | ")} |`),
+    ];
+    return `## CSV preview: ${escapePipe(csv.name)}\n\n${lines.join("\n")}\n\n*Showing the first ${rows.length - 1} data rows.*`;
+  } catch {
+    return "";
+  }
+}
+
+export interface ComparisonEntry {
+  modelId: string;
+  modelName: string;
+  content: string;
+  latencyMs: number;
+}
+
+export async function runComparison(
+  userId: string,
+  conversationId: string,
+  content: string,
+  modelIds: string[]
+): Promise<ComparisonEntry[]> {
+  const trimmed = content.trim();
+  if (!trimmed) throw new HttpError(400, "validation", "Message cannot be empty.");
+  const db = createServiceClient();
+  const conversation = await getConversationRow(userId, conversationId, db);
+  const picked = [...new Set(modelIds)]
+    .slice(0, 3)
+    .map((id) => getModel(id))
+    .filter((m): m is AIModel => Boolean(m));
+  if (!picked.length) throw new HttpError(400, "validation", "No valid models selected.");
+  const contextInfo = await resolveGenerationContext(userId, conversation, undefined, trimmed);
+  return Promise.all(
+    picked.map(async (model) => {
+      const startedAt = Date.now();
+      const text = buildDemoResponse(trimmed, model, [], false, contextInfo.parts);
+      return { modelId: model.id, modelName: model.name, content: text, latencyMs: Date.now() - startedAt };
+    })
+  );
+}
+
+export async function getConversationContextPreview(userId: string, conversationId: string) {
+  const db = createServiceClient();
+  const conversation = await getConversationRow(userId, conversationId, db);
+  const info = await resolveGenerationContext(userId, conversation, undefined, "");
+  return {
+    stats: {
+      messages: info.messageCount,
+      memories: info.memoryCount,
+      sources: info.sourceCount,
+      estimatedTokens: estimateTokens(info.parts.join("\n")),
+    },
+  };
+}
+
+export async function runScheduledPrompt(userId: string, promptId: string) {
+  const db = createServiceClient();
+  const prompt = await getSavedPrompt(userId, promptId);
+  const model = defaultModel();
+  const conversation = await storeCreateConversation(userId, {
+    title: `Scheduled: ${prompt.title}`.slice(0, 120),
+    modelId: model.id,
+  });
+  const conversationRow = await getConversationRow(userId, conversation.id, db);
+  const contextInfo = await resolveGenerationContext(userId, conversationRow, undefined, prompt.body);
+  await insertMessage(
+    conversation.id,
+    { role: "user", content: prompt.body, status: "complete", model: model.id },
+    db
+  );
+  const text = buildDemoResponse(prompt.body, model, [], false, contextInfo.parts);
+  const message = await insertMessage(
+    conversation.id,
+    { role: "assistant", content: text, status: "complete", model: model.id },
+    db
+  );
+  return { conversationId: conversation.id, messageId: message.id };
 }
 
 function messageOf(error: unknown): string {

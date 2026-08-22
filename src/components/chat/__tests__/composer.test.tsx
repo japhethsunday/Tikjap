@@ -1,20 +1,30 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Composer } from "@/components/chat/composer";
 import { ToastProvider } from "@/components/providers/toast";
 
+vi.mock("@/hooks/use-platform", () => ({
+  useSavedPrompts: () => ({ data: { prompts: [] } }),
+}));
+
 function renderComposer(overrides: Partial<React.ComponentProps<typeof Composer>> = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
-    <ToastProvider>
-      <Composer
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-        isStreaming={false}
-        allowImages
-        {...overrides}
-      />
-    </ToastProvider>
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <Composer
+          onSend={vi.fn()}
+          onStop={vi.fn()}
+          isStreaming={false}
+          allowImages
+          {...overrides}
+        />
+      </ToastProvider>
+    </QueryClientProvider>
   );
 }
 

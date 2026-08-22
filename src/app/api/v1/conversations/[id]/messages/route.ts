@@ -36,6 +36,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       modelId: body.modelId ?? "",
       attachmentIds: body.attachments,
       regenerateMessageId: body.regenerate ? body.regenerateMessageId : undefined,
+      continueFromMessageId: body.continue ? body.continueMessageId : undefined,
       removeFromMessageId: body.removeFromMessageId,
       assistantId: body.assistantId,
       signal: request.signal,

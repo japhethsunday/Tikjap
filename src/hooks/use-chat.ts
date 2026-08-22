@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { readSseEvents } from "@/lib/api/stream";
 import { errorMessage } from "@/lib/api";
-import type { AttachmentRef, ChatMessage, MessageStatus, StreamChunk } from "@/lib/types";
+import type { AttachmentRef, ChatMessage, ContextStats, MessageStatus, StreamChunk } from "@/lib/types";
 
 function localId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -31,13 +31,25 @@ export interface UseChatOptions {
   assistantId?: string;
 }
 
+interface StreamRequest {
+  content: string;
+  attachmentIds: string[];
+  regenerateMessageId?: string;
+  removeFromMessageId?: string;
+  continueFromMessageId?: string;
+}
+
 export interface UseChatResult {
   visibleMessages: ChatMessage[];
   status: "idle" | "streaming" | "error";
   error?: string;
   isStreaming: boolean;
+  contextStats?: ContextStats;
+  notice?: string;
+  dismissNotice: () => void;
   send: (content: string, attachmentIds?: string[]) => void;
   regenerate: (assistantMessageId: string) => void;
+  continueMessage: (assistantMessageId: string) => void;
   editAndResend: (userMessageId: string, content: string) => void;
   retryLast: () => void;
   stop: () => void;
@@ -49,10 +61,26 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<"idle" | "streaming" | "error">("idle");
   const [error, setError] = useState<string>();
+  const [contextStats, setContextStats] = useState<ContextStats>();
+  const [notice, setNotice] = useState<string>();
   const abortRef = useRef<AbortController | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
   const lastRequestRef = useRef<{ content: string; attachmentIds: string[]; conversationId: string } | null>(null);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+  }, []);
+
+  const [lastConversation, setLastConversation] = useState(conversationId);
+  if (conversationId !== lastConversation) {
+    // Adjust state during render when switching conversations (React-documented pattern).
+    setLastConversation(conversationId);
+    setPending([]);
+    setHidden(new Set());
+    setContextStats(undefined);
+    setNotice(undefined);
+  }
 
   const visibleMessages = useMemo(
     () => mergeMessages(messages, pending, hidden),
@@ -67,35 +95,53 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
     }
   }, [conversationId, queryClient]);
 
+  const showNotice = useCallback((message: string) => {
+    setNotice(message);
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setNotice(undefined), 6000);
+  }, []);
+
+  const dismissNotice = useCallback(() => setNotice(undefined), []);
+
   const runStream = useCallback(
-    async (request: { content: string; attachmentIds: string[]; regenerateMessageId?: string; removeFromMessageId?: string }) => {
+    async (request: StreamRequest) => {
       if (!conversationId) return;
       const controller = new AbortController();
       abortRef.current = controller;
       setError(undefined);
       setStatus("streaming");
 
-      const userMessage: ChatMessage | null = request.regenerateMessageId
-        ? null
-        : {
-            id: localId("user"),
-            conversationId,
-            role: "user",
-            content: request.content,
-            status: "complete",
-            model: modelId,
-            attachments: request.attachmentIds.length
-              ? (request.attachmentIds.map((id) => ({ fileId: id, name: "", size: 0, mimeType: "" }) as AttachmentRef) as AttachmentRef[])
-              : undefined,
-            createdAt: new Date().toISOString(),
-          };
+      const continuing = Boolean(request.continueFromMessageId);
+      let streamAssistantId = localId("assistant");
 
-      const streamAssistantId = localId("assistant");
+      const userMessage: ChatMessage | null =
+        request.regenerateMessageId || continuing
+          ? null
+          : {
+              id: localId("user"),
+              conversationId,
+              role: "user",
+              content: request.content,
+              status: "complete",
+              model: modelId,
+              attachments: request.attachmentIds.length
+                ? (request.attachmentIds.map((id) => ({ fileId: id, name: "", size: 0, mimeType: "" }) as AttachmentRef) as AttachmentRef[])
+                : undefined,
+              createdAt: new Date().toISOString(),
+            };
+
+      let seedContent = "";
+      if (continuing) {
+        streamAssistantId = request.continueFromMessageId!;
+        const target = [...pending, ...messages].find((m) => m.id === streamAssistantId);
+        seedContent = target?.content ?? "";
+      }
+
       const assistantMessage: ChatMessage = {
         id: streamAssistantId,
         conversationId,
         role: "assistant",
-        content: "",
+        content: seedContent,
         status: "streaming",
         model: modelId,
         createdAt: new Date().toISOString(),
@@ -114,9 +160,12 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
       if (userMessage) {
         setPending((current) => [...current, userMessage]);
       }
-      setPending((current) => [...current, assistantMessage]);
+      setPending((current) => {
+        const withoutStreamTarget = current.filter((m) => m.id !== streamAssistantId);
+        return [...withoutStreamTarget, assistantMessage];
+      });
 
-      let accumulated = "";
+      let accumulated = seedContent;
       try {
         const { reader } = await api.messages.start(
           conversationId,
@@ -126,6 +175,8 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
             attachments: request.attachmentIds.length ? request.attachmentIds : undefined,
             regenerate: Boolean(request.regenerateMessageId),
             regenerateMessageId: request.regenerateMessageId,
+            continue: continuing,
+            continueMessageId: request.continueFromMessageId,
             removeFromMessageId: request.removeFromMessageId,
             assistantId,
           },
@@ -183,11 +234,17 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
           setPending((current) =>
             current.map((m) => (m.id === streamAssistantId ? { ...m, usage: chunk.usage } : m))
           );
+        } else if (chunk.type === "context" && chunk.context) {
+          setContextStats(chunk.context);
+        } else if (chunk.type === "notice" && chunk.notice) {
+          showNotice(chunk.notice);
         } else if (chunk.type === "done") {
           const finalStatus: MessageStatus = chunk.status ?? "complete";
           setPending((current) =>
             current.map((m) =>
-              m.id === streamAssistantId ? { ...m, status: finalStatus, content: accumulated } : m
+              m.id === streamAssistantId
+                ? { ...m, status: finalStatus, content: accumulated, latencyMs: chunk.latencyMs ?? m.latencyMs }
+                : m
             )
           );
           setStatus("idle");
@@ -201,7 +258,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         }
       }
     },
-    [conversationId, modelId, streamingEnabled, assistantId, invalidate]
+    [conversationId, modelId, streamingEnabled, assistantId, invalidate, showNotice, pending, messages]
   );
 
   const send = useCallback(
@@ -228,6 +285,14 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
       void runStream({ content, attachmentIds, regenerateMessageId: assistantMessageId });
     },
     [visibleMessages, conversationId, runStream]
+  );
+
+  const continueMessage = useCallback(
+    (assistantMessageId: string) => {
+      if (!conversationId) return;
+      void runStream({ content: "", attachmentIds: [], continueFromMessageId: assistantMessageId });
+    },
+    [conversationId, runStream]
   );
 
   const retryLast = useCallback(() => {
@@ -259,5 +324,19 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
 
   const isStreaming = status === "streaming";
 
-  return { visibleMessages, status, error, isStreaming, send, regenerate, editAndResend, retryLast, stop };
+  return {
+    visibleMessages,
+    status,
+    error,
+    isStreaming,
+    contextStats,
+    notice,
+    dismissNotice,
+    send,
+    regenerate,
+    continueMessage,
+    editAndResend,
+    retryLast,
+    stop,
+  };
 }

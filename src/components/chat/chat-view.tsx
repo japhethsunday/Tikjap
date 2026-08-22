@@ -2,7 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, Bot, Download, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  Bot,
+  Columns3,
+  Download,
+  Link2,
+  Menu,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Printer,
+  Trash2,
+} from "lucide-react";
 import {
   useConversation,
   useCreateConversation,
@@ -16,6 +30,8 @@ import { useAssistants } from "@/hooks/use-platform";
 import { useChat } from "@/hooks/use-chat";
 import { useAuth } from "@/components/providers/auth";
 import { useToast } from "@/components/providers/toast";
+import { api } from "@/lib/api";
+import type { ComparisonResult } from "@/lib/types";
 import { ModelSelect } from "./model-select";
 import { Composer } from "./composer";
 import { MessageItem } from "./message";
@@ -49,6 +65,8 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const selectedModel = models.find((m) => m.id === effectiveModelId);
   const allowImages = Boolean(selectedModel?.capabilities.vision);
@@ -91,19 +109,28 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  const comparePrompt =
+    [...chat.visibleMessages].reverse().find((m) => m.role === "user")?.content ?? "";
+
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
         <button
           type="button"
           onClick={() => router.push("/chat")}
-          aria-label="Open conversation menu"
+          aria-label="Open conversations list"
           className="rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg lg:hidden"
         >
           <Menu className="h-5 w-5" aria-hidden />
         </button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-fg">{conversation?.conversation?.title ?? "New chat"}</p>
+          {chat.contextStats ? (
+            <p className="truncate text-[11px] text-muted">
+              context · {chat.contextStats.messages} messages · {chat.contextStats.memories} memories ·{" "}
+              {chat.contextStats.sources} sources · ~{chat.contextStats.estimatedTokens.toLocaleString()} tokens
+            </p>
+          ) : null}
         </div>
         <ModelSelect models={models} value={effectiveModelId} onChange={setModelId} loading={modelsData === undefined} />
         {assistants.length > 0 ? (
@@ -151,36 +178,59 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
           </Dropdown>
         ) : null}
         {conversationId && conversation ? (
-          <ConversationMenu
-            conversation={conversation.conversation}
-            onRename={() => {
-              setRenameValue(conversation.conversation.title);
-              setRenameOpen(true);
-            }}
-            onDelete={handleDelete}
-            onTogglePin={() =>
-              updateConversation.mutate(
-                { id: conversationId, pinned: !conversation.conversation.pinned },
-                {
-                  onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
-                }
-              )
-            }
-            onToggleArchive={() =>
-              updateConversation.mutate(
-                { id: conversationId, archived: !conversation.conversation.archived },
-                {
-                  onSuccess: () => {
-                    if (!conversation.conversation.archived) router.replace("/chat");
-                  },
-                  onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
-                }
-              )
-            }
-            onExport={() => handleExport(conversation.conversation.title, chat.visibleMessages)}
-          />
+          <>
+            <button
+              type="button"
+              onClick={() => setCompareOpen(true)}
+              aria-label="Compare models on last message"
+              title="Compare models"
+              className="hidden rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg sm:block"
+            >
+              <Columns3 className="h-5 w-5" aria-hidden />
+            </button>
+            <ConversationMenu
+              conversation={conversation.conversation}
+              onRename={() => {
+                setRenameValue(conversation.conversation.title);
+                setRenameOpen(true);
+              }}
+              onDelete={handleDelete}
+              onTogglePin={() =>
+                updateConversation.mutate(
+                  { id: conversationId, pinned: !conversation.conversation.pinned },
+                  {
+                    onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
+                  }
+                )
+              }
+              onToggleArchive={() =>
+                updateConversation.mutate(
+                  { id: conversationId, archived: !conversation.conversation.archived },
+                  {
+                    onSuccess: () => {
+                      if (!conversation.conversation.archived) router.replace("/chat");
+                    },
+                    onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
+                  }
+                )
+              }
+              onExport={() => handleExport(conversation.conversation.title, chat.visibleMessages)}
+              onShare={() => setShareOpen(true)}
+              onCompare={() => setCompareOpen(true)}
+              onPrint={() => window.print()}
+            />
+          </>
         ) : null}
       </header>
+
+      {chat.notice ? (
+        <div className="flex items-center justify-between gap-3 border-b border-line bg-surface px-4 py-2 text-xs text-muted">
+          <span>{chat.notice}</span>
+          <button type="button" onClick={chat.dismissNotice} className="shrink-0 font-medium text-fg hover:underline">
+            Dismiss
+          </button>
+        </div>
+      ) : null}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {isLoadingMessages ? (
@@ -197,7 +247,9 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
               <MessageItem
                 key={message.id}
                 message={message}
+                conversationId={conversationId}
                 onRegenerate={chat.regenerate}
+                onContinue={chat.continueMessage}
                 onEdit={chat.editAndResend}
                 showTimestamp={showTimestamps}
               />
@@ -257,6 +309,20 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
           </div>
         </form>
       </Dialog>
+
+      {conversationId && compareOpen ? (
+        <CompareDialog
+          open={compareOpen}
+          onClose={() => setCompareOpen(false)}
+          conversationId={conversationId}
+          promptText={comparePrompt}
+          models={models.map((m) => ({ id: m.id, name: m.name }))}
+        />
+      ) : null}
+
+      {conversationId && shareOpen ? (
+        <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} conversationId={conversationId} />
+      ) : null}
     </div>
   );
 
@@ -294,6 +360,184 @@ function useShowTimestamps(): { showTimestamps: boolean } {
   return { showTimestamps: data?.preferences.showTimestamps ?? true };
 }
 
+function CompareDialog({
+  open,
+  onClose,
+  conversationId,
+  promptText,
+  models,
+}: {
+  open: boolean;
+  onClose: () => void;
+  conversationId: string;
+  promptText: string;
+  models: Array<{ id: string; name: string }>;
+}) {
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<string[]>(models.slice(0, 2).map((m) => m.id));
+  const [results, setResults] = useState<ComparisonResult[]>([]);
+  const [running, setRunning] = useState(false);
+
+  const toggle = (id: string) => {
+    setSelected((current) =>
+      current.includes(id) ? current.filter((x) => x !== id) : current.length >= 3 ? current : [...current, id]
+    );
+  };
+
+  const run = async () => {
+    if (!promptText.trim() || selected.length === 0) return;
+    setRunning(true);
+    setResults([]);
+    try {
+      const { results: comparisonResults } = await api.conversations.compare(conversationId, promptText, selected);
+      setResults(comparisonResults);
+    } catch (error) {
+      toast({ kind: "error", title: "Comparison failed", description: toErrorMessage(error) });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Compare models" description={`Re-run the latest prompt across up to three models.`}>
+      <div className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          {models.map((model) => (
+            <button
+              key={model.id}
+              type="button"
+              onClick={() => toggle(model.id)}
+              aria-pressed={selected.includes(model.id)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                selected.includes(model.id)
+                  ? "border-primary bg-primary text-primary-fg"
+                  : "border-line text-muted hover:border-fg hover:text-fg"
+              }`}
+            >
+              {model.name}
+            </button>
+          ))}
+        </div>
+        {!promptText.trim() ? <p className="text-xs text-muted">Send a message first, then compare models on it.</p> : null}
+        <div className="flex justify-end">
+          <Button onClick={run} disabled={!selected.length || !promptText.trim() || running}>
+            {running ? "Running…" : "Run comparison"}
+          </Button>
+        </div>
+        {results.length > 0 ? (
+          <div className={`grid gap-3 ${results.length > 1 ? "sm:grid-cols-2" : ""}`}>
+            {results.map((result) => (
+              <div key={result.modelId} className="rounded-xl border border-line p-3">
+                <p className="mb-1 flex items-center justify-between text-sm font-medium text-fg">
+                  <span>{result.modelName}</span>
+                  <span className="text-[11px] tabular-nums text-muted">{(result.latencyMs / 1000).toFixed(1)}s</span>
+                </p>
+                <div className="max-h-64 overflow-y-auto text-xs text-muted">
+                  <MarkdownLite content={result.content} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </Dialog>
+  );
+}
+
+function MarkdownLite({ content }: { content: string }) {
+  return <p className="whitespace-pre-wrap">{content}</p>;
+}
+
+function ShareDialog({
+  open,
+  onClose,
+  conversationId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  conversationId: string;
+}) {
+  const { toast } = useToast();
+  const [expiresInHours, setExpiresInHours] = useState(0);
+  const [password, setPassword] = useState("");
+  const [link, setLink] = useState<string>();
+  const [creating, setCreating] = useState(false);
+
+  const create = async () => {
+    setCreating(true);
+    try {
+      const result = await api.conversations.createShare(conversationId, {
+        expiresInHours: expiresInHours || undefined,
+        password: password.trim() || undefined,
+      });
+      setLink(`${window.location.origin}${result.url}`);
+      void api.conversations.shares(conversationId).catch(() => undefined);
+    } catch (error) {
+      toast({ kind: "error", title: "Could not create link", description: toErrorMessage(error) });
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Share conversation"
+      description="Anyone with this read-only link can view the conversation."
+    >
+      <div className="space-y-4">
+        <label className="block text-sm text-muted">
+          Expires after
+          <select
+            value={expiresInHours}
+            onChange={(event) => setExpiresInHours(Number(event.target.value))}
+            className="mt-1 w-full rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-fg"
+          >
+            <option value={0}>Never</option>
+            <option value={24}>24 hours</option>
+            <option value={24 * 7}>7 days</option>
+            <option value={24 * 30}>30 days</option>
+          </select>
+        </label>
+        <Input
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="Optional password"
+          maxLength={80}
+          aria-label="Share password"
+        />
+        {link ? (
+          <div className="space-y-2">
+            <code className="block break-all rounded-lg border border-line bg-surface px-3 py-2 text-xs text-muted">{link}</code>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                void navigator.clipboard.writeText(link).then(() => {
+                  toast({ kind: "success", title: "Link copied" });
+                });
+              }}
+            >
+              Copy link
+            </Button>
+          </div>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+          {!link ? (
+            <Button onClick={create} disabled={creating}>
+              <Link2 className="mr-1.5 inline h-4 w-4" aria-hidden />
+              {creating ? "Creating…" : "Create link"}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
 function ConversationMenu({
   conversation,
   onRename,
@@ -301,6 +545,9 @@ function ConversationMenu({
   onTogglePin,
   onToggleArchive,
   onExport,
+  onShare,
+  onCompare,
+  onPrint,
 }: {
   conversation: { pinned?: boolean; archived?: boolean };
   onRename: () => void;
@@ -308,6 +555,9 @@ function ConversationMenu({
   onTogglePin: () => void;
   onToggleArchive: () => void;
   onExport: () => void;
+  onShare: () => void;
+  onCompare: () => void;
+  onPrint: () => void;
 }) {
   return (
     <Dropdown
@@ -343,6 +593,33 @@ function ConversationMenu({
             }}
           >
             {conversation.pinned ? "Unpin" : "Pin to top"}
+          </DropdownItem>
+          <DropdownItem
+            icon={<Columns3 className="h-4 w-4" aria-hidden />}
+            onSelect={() => {
+              close();
+              onCompare();
+            }}
+          >
+            Compare models
+          </DropdownItem>
+          <DropdownItem
+            icon={<Link2 className="h-4 w-4" aria-hidden />}
+            onSelect={() => {
+              close();
+              onShare();
+            }}
+          >
+            Share…
+          </DropdownItem>
+          <DropdownItem
+            icon={<Printer className="h-4 w-4" aria-hidden />}
+            onSelect={() => {
+              close();
+              onPrint();
+            }}
+          >
+            Print / PDF
           </DropdownItem>
           <DropdownItem
             icon={conversation.archived ? <ArchiveRestore className="h-4 w-4" aria-hidden /> : <Archive className="h-4 w-4" aria-hidden />}

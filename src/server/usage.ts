@@ -1,5 +1,6 @@
 import {
   adminMetrics as storeAdminMetrics,
+  fileUsageFor as storeFileUsage,
   getProfilePlan,
   getTodayUsage as storeGetTodayUsage,
   incrementUsage,
@@ -60,4 +61,25 @@ export async function usageSummaryFor(userId: string) {
 
 export async function adminMetrics() {
   return storeAdminMetrics();
+}
+
+export interface StorageUsage {
+  usedBytes: number;
+  capBytes: number;
+  fileCount: number;
+}
+
+const STORAGE_CAPS: Record<PlanId, number> = {
+  free: 50 * 1024 * 1024,
+  pro: 2 * 1024 * 1024 * 1024,
+  team: 20 * 1024 * 1024 * 1024,
+};
+
+export async function storageUsageFor(userId: string): Promise<StorageUsage> {
+  const [plan, used] = await Promise.all([getProfilePlan(userId), storeFileUsage(userId)]);
+  return {
+    usedBytes: used.bytes,
+    capBytes: STORAGE_CAPS[plan],
+    fileCount: used.count,
+  };
 }

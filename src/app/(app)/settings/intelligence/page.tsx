@@ -38,7 +38,7 @@ export default function IntelligencePage() {
     const add = () => {
       const value = content.trim();
       if (!value) return;
-      createMemory.mutate(value, {
+      createMemory.mutate({ content: value }, {
         onSuccess: () => {
           setContent("");
           toast({ kind: "success", title: "Memory saved" });

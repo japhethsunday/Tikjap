@@ -253,3 +253,23 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+@media print {
+  aside,
+  header,
+  nav,
+  [data-print-hide] {
+    display: none !important;
+  }
+  body,
+  html {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+  main,
+  .max-w-3xl {
+    max-width: none !important;
+    overflow: visible !important;
+  }
+}

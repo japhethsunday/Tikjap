@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Sidebar } from "@/components/sidebar/sidebar";
+import { CommandPalette } from "@/components/command-palette";
 import { useAuth } from "@/components/providers/auth";
 import { Spinner } from "@/components/ui/primitives";
 import { useRouter } from "next/navigation";
@@ -30,6 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col" onClick={() => sidebarOpen && setSidebarOpen(false)}>
         {children}
       </div>
+      <CommandPalette />
     </div>
   );
 }

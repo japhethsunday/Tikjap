@@ -14,6 +14,8 @@ import {
   createMemoriesService,
   createAssistantsService,
   createPromptsService,
+  createSchedulesService,
+  createWorkspaceService,
 } from "./services/platform";
 
 export const API_BASE_URL =
@@ -53,6 +55,8 @@ export const api = {
   memories: createMemoriesService(getApiClient()),
   assistants: createAssistantsService(getApiClient()),
   prompts: createPromptsService(getApiClient()),
+  schedules: createSchedulesService(getApiClient()),
+  workspace: createWorkspaceService(getApiClient()),
 };
 
 export type Api = typeof api;
