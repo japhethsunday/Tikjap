@@ -502,8 +502,9 @@ export async function renameConversation(userId: string, id: string, title: stri
 
 export async function deleteConversation(userId: string, id: string): Promise<void> {
   const db = createServiceClient();
-  const { error } = await db.from("conversations").delete().eq("id", id).eq("user_id", userId);
+  const { error, count } = await db.from("conversations").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(`Failed to delete conversation: ${error.message}`);
+  if (!count || count === 0) throw new HttpError(404, "not_found", "Conversation not found.");
 }
 
 export async function messageCountFor(conversationId: string, db: Db = createServiceClient()): Promise<number> {
@@ -797,8 +798,9 @@ export async function getFile(userId: string, fileId: string, db: Db = createSer
 
 export async function deleteFileRecord(userId: string, fileId: string): Promise<void> {
   const db = createServiceClient();
-  const { error } = await db.from("files").delete().eq("id", fileId).eq("user_id", userId);
+  const { error, count } = await db.from("files").delete().eq("id", fileId).eq("user_id", userId);
   if (error) throw new Error(`Failed to delete file: ${error.message}`);
+  if (!count || count === 0) throw new HttpError(404, "not_found", "File not found.");
 }
 
 // ---------------------------------------------------------------------------
@@ -995,8 +997,9 @@ export async function deleteMemoriesBulk(userId: string, ids: string[]): Promise
 
 export async function deleteMemory(userId: string, id: string): Promise<void> {
   const db = createServiceClient();
-  const { error } = await db.from("memories").delete().eq("id", id).eq("user_id", userId);
+  const { error, count } = await db.from("memories").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(`Failed to delete memory: ${error.message}`);
+  if (!count || count === 0) throw new HttpError(404, "not_found", "Memory not found.");
 }
 
 export async function clearMemories(userId: string): Promise<void> {
@@ -1101,8 +1104,9 @@ export async function updateAssistant(
 
 export async function deleteAssistant(userId: string, id: string): Promise<void> {
   const db = createServiceClient();
-  const { error } = await db.from("assistants").delete().eq("id", id).eq("user_id", userId);
+  const { error, count } = await db.from("assistants").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(`Failed to delete assistant: ${error.message}`);
+  if (!count || count === 0) throw new HttpError(404, "not_found", "Assistant not found.");
 }
 
 // ---------------------------------------------------------------------------
@@ -1146,8 +1150,9 @@ export async function createSavedPrompt(
 
 export async function deleteSavedPrompt(userId: string, id: string): Promise<void> {
   const db = createServiceClient();
-  const { error } = await db.from("saved_prompts").delete().eq("id", id).eq("user_id", userId);
+  const { error, count } = await db.from("saved_prompts").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(`Failed to delete prompt: ${error.message}`);
+  if (!count || count === 0) throw new HttpError(404, "not_found", "Prompt not found.");
 }
 
 export async function updateSavedPrompt(
@@ -1920,8 +1925,9 @@ export async function updateScheduleActive(userId: string, id: string, active: b
 
 export async function deleteSchedule(userId: string, id: string): Promise<void> {
   const db = createServiceClient();
-  const { error } = await db.from("schedules").delete().eq("id", id).eq("user_id", userId);
+  const { error, count } = await db.from("schedules").delete().eq("id", id).eq("user_id", userId);
   if (error) throw new Error(`Failed to delete schedule: ${error.message}`);
+  if (!count || count === 0) throw new HttpError(404, "not_found", "Schedule not found.");
 }
 
 export async function dueSchedules(limit = 20) {
