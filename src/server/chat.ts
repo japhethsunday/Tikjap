@@ -421,7 +421,7 @@ export async function runComparison(
     picked.map(async (model) => {
       const startedAt = Date.now();
       const text = buildDemoResponse(trimmed, model, [], false, contextInfo.parts);
-      return { modelId: model.id, modelName: model.name, content: text, latencyMs: Date.now() - startedAt };
+      return { modelId: model.id, modelName: model.name, content: text, latencyMs: Math.max(1, Date.now() - startedAt) };
     })
   );
 }
