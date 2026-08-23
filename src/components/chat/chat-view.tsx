@@ -179,8 +179,8 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
               compact={false}
             />
             {chat.isStreaming && streamingModel ? (
-              <span className="hidden shrink-0 items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent sm:inline-flex">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+              <span className="hidden shrink-0 items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent sm:inline-flex" aria-live="polite">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />
                 {streamingModel.name}
               </span>
             ) : null}
@@ -346,6 +346,11 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
         disabledReason={user ? undefined : "Sign in to start chatting"}
         allowImages={allowImages}
         className="shrink-0"
+        modelId={effectiveModelId}
+        onModelChange={(id) => {
+          modelOverrideRef.current = true;
+          setModelId(id);
+        }}
       />
 
       <Dialog

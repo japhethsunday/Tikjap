@@ -8,6 +8,9 @@ import { ToastProvider } from "@/components/providers/toast";
 vi.mock("@/hooks/use-platform", () => ({
   useSavedPrompts: () => ({ data: { prompts: [] } }),
 }));
+vi.mock("@/hooks/use-models", () => ({
+  useModels: () => ({ data: { models: [] } }),
+}));
 
 function renderComposer(overrides: Partial<React.ComponentProps<typeof Composer>> = {}) {
   const queryClient = new QueryClient({
@@ -21,6 +24,8 @@ function renderComposer(overrides: Partial<React.ComponentProps<typeof Composer>
           onStop={vi.fn()}
           isStreaming={false}
           allowImages
+          modelId="tikja-1"
+          onModelChange={vi.fn()}
           {...overrides}
         />
       </ToastProvider>

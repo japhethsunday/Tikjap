@@ -153,12 +153,12 @@ function AssistantMessage({
 
   return (
     <div className="group flex flex-col items-start gap-1.5">
-      <div className="flex items-start gap-3">
-        <Avatar name="Tikjap AI" className="mt-1" />
-        <div className="min-w-0 max-w-full sm:max-w-[85%]">
-          <span className="mb-1 block text-[11px] font-semibold tracking-wide text-fg">
-            Tikjap AI{message.model ? <span className="ml-1.5 font-normal text-muted">· {MODEL_DISPLAY_NAMES[message.model] ?? message.model}</span> : null}
-          </span>
+<div className="flex items-start gap-3">
+          <Avatar name={message.model ? MODEL_DISPLAY_NAMES[message.model] ?? "Tikjap AI" : "Tikjap AI"} className="mt-1" />
+          <div className="min-w-0 max-w-full sm:max-w-[85%]">
+            <span className="mb-1 block text-[11px] font-semibold tracking-wide text-fg">
+              {message.model ? MODEL_DISPLAY_NAMES[message.model] ?? "Tikjap AI" : "Tikjap AI"}
+            </span>
           <div className={cn("rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-2.5", isError && "border-danger/25 bg-danger/5")}>
             {isError ? (
               <div className="space-y-2">

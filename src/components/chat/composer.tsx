@@ -1,14 +1,23 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ArrowUp, Paperclip, Square, Slash } from "lucide-react";
+import { ArrowUp, Paperclip, Square, Slash, Server, Check, ChevronsUpDown, Eye, FileText, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AttachmentChip } from "./attachment-chip";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useSavedPrompts } from "@/hooks/use-platform";
+import { useModels } from "@/hooks/use-models";
 import { MAX_ATTACHMENTS_PER_MESSAGE, isAllowedFile, MAX_FILE_SIZE_BYTES } from "@/lib/constants";
 import { estimateTokens, cn } from "@/lib/utils";
 import { useToast } from "@/components/providers/toast";
+import { Dropdown } from "@/components/ui/overlays";
+import type { ModelCapabilities } from "@/lib/types";
+
+const CAPABILITY_ICONS: Array<{ key: keyof ModelCapabilities; label: string; icon: React.ReactNode }> = [
+  { key: "vision", label: "Vision", icon: <Eye className="h-3 w-3" aria-hidden /> },
+  { key: "files", label: "Documents", icon: <FileText className="h-3 w-3" aria-hidden /> },
+  { key: "toolUse", label: "Tools", icon: <Zap className="h-3 w-3" aria-hidden /> },
+];
 
 export function Composer({
   onSend,
@@ -18,6 +27,8 @@ export function Composer({
   disabledReason,
   allowImages,
   className,
+  modelId,
+  onModelChange,
 }: {
   onSend: (content: string, attachmentIds: string[]) => void;
   onStop: () => void;
@@ -26,6 +37,8 @@ export function Composer({
   disabledReason?: string;
   allowImages: boolean;
   className?: string;
+  modelId: string;
+  onModelChange: (modelId: string) => void;
 }) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -33,7 +46,10 @@ export function Composer({
   const { toast } = useToast();
   const { attachments, addFiles, remove, uploadedIds, hasUploading, hasErrors } = useFileUpload();
   const { data: promptsData } = useSavedPrompts();
+  const { data: modelsData } = useModels();
   const savedPrompts = useMemo(() => promptsData?.prompts ?? [], [promptsData]);
+  const models = modelsData?.models ?? [];
+  const selectedModel = models.find((m) => m.id === modelId);
 
   const slashActive = value.startsWith("/");
   const slashQuery = slashActive ? value.slice(1).trim().toLowerCase() : "";
@@ -220,21 +236,93 @@ export function Composer({
             className="max-h-50 min-h-[40px] flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-relaxed text-fg placeholder:text-muted/70 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           />
 
-          {isStreaming ? (
-            <Button size="sm" variant="secondary" onClick={onStop} className="mb-0.5" aria-label="Stop generating">
-              <Square className="h-4 w-4 fill-current" aria-hidden />
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={submit}
-              disabled={!canSend}
-              className="mb-0.5 rounded-xl p-2.5"
-              aria-label="Send message"
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <Dropdown
+              trigger={({ ref, "aria-expanded": expanded, toggle }) => (
+                <button
+                  ref={ref}
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-haspopup="listbox"
+                  onClick={toggle}
+                  disabled={disabled || isStreaming}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-sm font-medium text-fg transition-colors hover:bg-surface disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Server className="h-3.5 w-3.5 text-muted" aria-hidden />
+                  <span className="hidden sm:inline">{selectedModel?.name ?? "Model"}</span>
+                  <ChevronsUpDown className="h-3.5 w-3.5 text-muted" aria-hidden />
+                </button>
+              )}
             >
-              <ArrowUp className="h-4 w-4" aria-hidden />
-            </Button>
-          )}
+              {({ close }) => (
+                <div role="listbox" aria-label="Select a model" className="w-64">
+                  <p className="px-3 pb-1.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted">
+                    Choose a model
+                  </p>
+                  <div className="max-h-60 overflow-y-auto">
+                    {models.map((model) => (
+                      <button
+                        key={model.id}
+                        type="button"
+                        role="option"
+                        aria-selected={model.id === modelId}
+                        onClick={() => {
+                          onModelChange(model.id);
+                          close();
+                        }}
+                        disabled={disabled || isStreaming}
+                        className={cn(
+                          "flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors",
+                          model.id === modelId ? "bg-surface" : "hover:bg-surface/60",
+                          (disabled || isStreaming) && "opacity-50 cursor-not-allowed"
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium text-fg">{model.name}</span>
+                            {model.isDefault ? (
+                              <span className="rounded bg-accent/10 px-1 py-0.5 text-[10px] font-medium text-accent">
+                                Default
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-0.5 line-clamp-1 text-xs text-muted">{model.description}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {CAPABILITY_ICONS.filter((cap) => model.capabilities[cap.key]).map((cap) => (
+                              <span
+                                key={cap.key}
+                                className="inline-flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted"
+                              >
+                                {cap.icon}
+                                {cap.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        {model.id === modelId ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden /> : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Dropdown>
+
+            {isStreaming ? (
+              <Button size="sm" variant="secondary" onClick={onStop} className="mb-0.5" aria-label="Stop generating">
+                <Square className="h-4 w-4 fill-current" aria-hidden />
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={submit}
+                disabled={!canSend}
+                className="mb-0.5 rounded-xl p-2.5"
+                aria-label="Send message"
+              >
+                <ArrowUp className="h-4 w-4" aria-hidden />
+              </Button>
+            )}
+          </div>
         </div>
 
         <p className="flex items-center justify-center gap-2 px-4 pb-2 text-[11px] text-muted">
