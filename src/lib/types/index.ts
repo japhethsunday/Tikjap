@@ -92,6 +92,15 @@ export interface UploadedFile {
   createdAt: string;
 }
 
+export type ToolPermission =
+  | "web_search"
+  | "file_analysis"
+  | "url_analysis"
+  | "data_analysis"
+  | "code_execution"
+  | "image_generation"
+  | "deep_research";
+
 export interface UsageDay {
   date: string;
   messages: number;

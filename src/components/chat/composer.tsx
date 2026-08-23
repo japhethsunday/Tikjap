@@ -11,7 +11,8 @@ import { MAX_ATTACHMENTS_PER_MESSAGE, isAllowedFile, MAX_FILE_SIZE_BYTES } from 
 import { estimateTokens, cn } from "@/lib/utils";
 import { useToast } from "@/components/providers/toast";
 import { Dropdown } from "@/components/ui/overlays";
-import type { ModelCapabilities } from "@/lib/types";
+import { ToolToggles } from "@/components/tools/tool-selector";
+import type { ModelCapabilities, ToolPermission } from "@/lib/types";
 
 const CAPABILITY_ICONS: Array<{ key: keyof ModelCapabilities; label: string; icon: React.ReactNode }> = [
   { key: "vision", label: "Vision", icon: <Eye className="h-3 w-3" aria-hidden /> },
@@ -29,6 +30,8 @@ export function Composer({
   className,
   modelId,
   onModelChange,
+  enabledTools = [],
+  onToolsChange,
 }: {
   onSend: (content: string, attachmentIds: string[]) => void;
   onStop: () => void;
@@ -39,6 +42,8 @@ export function Composer({
   className?: string;
   modelId: string;
   onModelChange: (modelId: string) => void;
+  enabledTools?: ToolPermission[];
+  onToolsChange?: (tools: ToolPermission[]) => void;
 }) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -237,6 +242,16 @@ export function Composer({
           />
 
           <div className="flex items-center gap-1.5 mb-0.5">
+            <ToolToggles
+              enabledTools={enabledTools}
+              onToggle={(toolId, enabled) => {
+                const next = enabled
+                  ? [...enabledTools, toolId]
+                  : enabledTools.filter((t) => t !== toolId);
+                onToolsChange?.(next);
+              }}
+              disabled={disabled || isStreaming}
+            />
             <Dropdown
               trigger={({ ref, "aria-expanded": expanded, toggle }) => (
                 <button

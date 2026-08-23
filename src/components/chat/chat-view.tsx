@@ -40,6 +40,7 @@ import { MessageItem } from "./message";
 import { ChatEmptyState } from "./empty-state";
 import { Dropdown, DropdownItem, Dialog } from "@/components/ui/overlays";
 import { Button, Input, Skeleton } from "@/components/ui";
+import type { ToolPermission } from "@/lib/tools/types";
 
 let outbox: { text: string; attachmentIds: string[]; modelId: string } | null = null;
 
@@ -77,6 +78,8 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
     }
   }, [conversationId, conversationModel]);
   const [assistantId, setAssistantId] = useState<string | undefined>(undefined);
+
+  const [enabledTools, setEnabledTools] = useState<ToolPermission[]>([]);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -351,6 +354,8 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
           modelOverrideRef.current = true;
           setModelId(id);
         }}
+        enabledTools={enabledTools}
+        onToolsChange={setEnabledTools}
       />
 
       <Dialog
