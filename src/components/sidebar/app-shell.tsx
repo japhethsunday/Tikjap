@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
 import { Sidebar } from "@/components/sidebar/sidebar";
+import { SidebarProvider, useSidebar } from "@/components/sidebar/sidebar-context";
 import { CommandPalette } from "@/components/command-palette";
 import { useAuth } from "@/components/providers/auth";
 import { Spinner } from "@/components/ui/primitives";
 import { useRouter } from "next/navigation";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+function AppShellInner({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
   const router = useRouter();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { open, setOpen } = useSidebar();
 
   if (status === "loading") {
     return (
@@ -27,11 +27,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg text-fg">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex min-w-0 flex-1 flex-col" onClick={() => sidebarOpen && setSidebarOpen(false)}>
+      <Sidebar open={open} onClose={() => setOpen(false)} />
+      <div className="flex min-w-0 flex-1 flex-col" onClick={() => open && setOpen(false)}>
         {children}
       </div>
       <CommandPalette />
     </div>
+  );
+}
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <SidebarProvider>
+      <AppShellInner>{children}</AppShellInner>
+    </SidebarProvider>
   );
 }

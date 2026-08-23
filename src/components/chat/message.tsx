@@ -101,6 +101,13 @@ function UserMessage({
 
 const LATENCY_MIN_MS = 0;
 
+const MODEL_DISPLAY_NAMES: Record<string, string> = {
+  "tikja-mini": "Tikja Mini",
+  "tikja-1": "Tikja 1",
+  "tikja-1-pro": "Tikja 1 Pro",
+  "tikja-vision": "Tikja Vision",
+};
+
 function AssistantMessage({
   message,
   conversationId,
@@ -149,7 +156,9 @@ function AssistantMessage({
       <div className="flex items-start gap-3">
         <Avatar name="Tikjap AI" className="mt-1" />
         <div className="min-w-0 max-w-full sm:max-w-[85%]">
-          <span className="mb-1 block text-[11px] font-semibold tracking-wide text-fg">Tikjap AI</span>
+          <span className="mb-1 block text-[11px] font-semibold tracking-wide text-fg">
+            Tikjap AI{message.model ? <span className="ml-1.5 font-normal text-muted">· {MODEL_DISPLAY_NAMES[message.model] ?? message.model}</span> : null}
+          </span>
           <div className={cn("rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-2.5", isError && "border-danger/25 bg-danger/5")}>
             {isError ? (
               <div className="space-y-2">

@@ -182,6 +182,8 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
       });
 
       let accumulated = seedContent;
+      const optimisticUserId = userMessage?.id ?? null;
+      const optimisticAssistantId = assistantMessage.id;
       try {
         const { reader } = await api.messages.start(
           conversationId,
@@ -205,30 +207,42 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
 
         if (controller.signal.aborted) {
           setPending((current) =>
-            current.map((m) => (m.id === streamAssistantId ? { ...m, status: "stopped", content: accumulated } : m))
+            current
+              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
+              .filter((m) => m.id !== optimisticAssistantId)
+              .map((m) => (m.id === streamAssistantId ? { ...m, status: "stopped", content: accumulated } : m))
           );
           setStatus("idle");
         } else {
           setPending((current) =>
-            current.map((m) =>
-              m.id === streamAssistantId
-                ? { ...m, status: (accumulated ? "complete" : "error") as MessageStatus, content: accumulated }
-                : m
-            )
+            current
+              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
+              .filter((m) => m.id !== optimisticAssistantId)
+              .map((m) =>
+                m.id === streamAssistantId
+                  ? { ...m, status: (accumulated ? "complete" : "error") as MessageStatus, content: accumulated }
+                  : m
+              )
           );
           setStatus("idle");
           invalidate();
         }
       } catch (streamError) {
         if (controller.signal.aborted) {
-          // User stopped generation; finalize as stopped.
           setPending((current) =>
-            current.map((m) => (m.id === streamAssistantId ? { ...m, status: "stopped", content: accumulated } : m))
+            current
+              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
+              .filter((m) => m.id !== optimisticAssistantId)
+              .map((m) => (m.id === streamAssistantId ? { ...m, status: "stopped", content: accumulated } : m))
           );
+          setStatus("idle");
         } else {
           const message = errorMessage(streamError);
           setPending((current) =>
-            current.map((m) => (m.id === streamAssistantId ? { ...m, status: "error", content: accumulated } : m))
+            current
+              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
+              .filter((m) => m.id !== optimisticAssistantId)
+              .map((m) => (m.id === streamAssistantId ? { ...m, status: "error", content: accumulated } : m))
           );
           setError(message);
           setStatus("error");
@@ -257,17 +271,23 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         } else if (chunk.type === "done") {
           const finalStatus: MessageStatus = chunk.status ?? "complete";
           setPending((current) =>
-            current.map((m) =>
-              m.id === streamAssistantId
-                ? { ...m, status: finalStatus, content: accumulated, latencyMs: chunk.latencyMs ?? m.latencyMs }
-                : m
-            )
+            current
+              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
+              .filter((m) => m.id !== optimisticAssistantId)
+              .map((m) =>
+                m.id === streamAssistantId
+                  ? { ...m, status: finalStatus, content: accumulated, latencyMs: chunk.latencyMs ?? m.latencyMs }
+                  : m
+              )
           );
           setStatus("idle");
           invalidate();
         } else if (chunk.type === "error") {
           setPending((current) =>
-            current.map((m) => (m.id === streamAssistantId ? { ...m, status: "error" } : m))
+            current
+              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
+              .filter((m) => m.id !== optimisticAssistantId)
+              .map((m) => (m.id === streamAssistantId ? { ...m, status: "error" } : m))
           );
           setError(chunk.error ?? "Something went wrong.");
           setStatus("error");

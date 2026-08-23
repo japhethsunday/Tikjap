@@ -7,7 +7,7 @@ import { AttachmentChip } from "./attachment-chip";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useSavedPrompts } from "@/hooks/use-platform";
 import { MAX_ATTACHMENTS_PER_MESSAGE, isAllowedFile, MAX_FILE_SIZE_BYTES } from "@/lib/constants";
-import { estimateTokens } from "@/lib/utils";
+import { estimateTokens, cn } from "@/lib/utils";
 import { useToast } from "@/components/providers/toast";
 
 export function Composer({
@@ -17,6 +17,7 @@ export function Composer({
   disabled,
   disabledReason,
   allowImages,
+  className,
 }: {
   onSend: (content: string, attachmentIds: string[]) => void;
   onStop: () => void;
@@ -24,6 +25,7 @@ export function Composer({
   disabled?: boolean;
   disabledReason?: string;
   allowImages: boolean;
+  className?: string;
 }) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -135,7 +137,7 @@ export function Composer({
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6" data-print-hide>
+    <div className={cn("mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6", className)} data-print-hide>
       <div className="relative rounded-2xl border border-line bg-elevated shadow-sm transition-shadow focus-within:border-accent/60 focus-within:shadow-md">
         {slashMatches.length > 0 ? (
           <div

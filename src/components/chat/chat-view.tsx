@@ -18,6 +18,7 @@ import {
   Printer,
   Trash2,
 } from "lucide-react";
+import { useToggleSidebar } from "@/components/sidebar/sidebar-context";
 import {
   useConversation,
   useCreateConversation,
@@ -46,6 +47,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
   const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
+  const { toggle: toggleSidebar } = useToggleSidebar();
   const { showTimestamps } = useShowTimestamps();
   const { data: modelsData } = useModels();
   const { data: preferences } = useAiPreferences();
@@ -92,6 +94,11 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
     streamingEnabled: preferences?.preferences.streamingEnabled ?? true,
     assistantId,
   });
+
+  const streamingModelName = chat.isStreaming
+    ? chat.visibleMessages.findLast((m) => m.role === "assistant" && m.status === "streaming")?.model
+    : undefined;
+  const streamingModel = streamingModelName ? models.find((m) => m.id === streamingModelName) : undefined;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
@@ -152,18 +159,25 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
         <button
           type="button"
-          onClick={() => router.push("/chat")}
+          onClick={toggleSidebar}
           aria-label="Open conversations list"
           className="rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg lg:hidden"
         >
           <Menu className="h-5 w-5" aria-hidden />
         </button>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-fg">{conversation?.conversation?.title ?? "New chat"}</p>
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-medium text-fg">{conversation?.conversation?.title ?? "New chat"}</p>
+            {chat.isStreaming && streamingModel ? (
+              <span className="hidden shrink-0 items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent sm:inline-flex">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                {streamingModel.name}
+              </span>
+            ) : null}
+          </div>
           {chat.contextStats ? (
             <p className="truncate text-[11px] text-muted">
-              context · {chat.contextStats.messages} messages · {chat.contextStats.memories} memories ·{" "}
-              {chat.contextStats.sources} sources · ~{chat.contextStats.estimatedTokens.toLocaleString()} tokens
+              {chat.contextStats.messages} msgs · {chat.contextStats.memories} mem · {chat.contextStats.sources} src · ~{chat.contextStats.estimatedTokens.toLocaleString()} tok
             </p>
           ) : null}
         </div>
@@ -175,6 +189,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
             setModelId(id);
           }}
           loading={modelsData === undefined}
+          compact
         />
         {assistants.length > 0 ? (
           <Dropdown
@@ -187,8 +202,8 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
                 onClick={toggle}
                 className={
                   assistantId
-                    ? "rounded-lg p-2 text-accent transition-colors hover:bg-surface"
-                    : "rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg"
+                    ? "hidden rounded-lg p-2 text-accent transition-colors hover:bg-surface sm:block"
+                    : "hidden rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg sm:block"
                 }
               >
                 <Bot className="h-5 w-5" aria-hidden />
@@ -328,6 +343,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
         disabled={!user}
         disabledReason={user ? undefined : "Sign in to start chatting"}
         allowImages={allowImages}
+        className="shrink-0"
       />
 
       <Dialog

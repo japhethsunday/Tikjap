@@ -17,11 +17,13 @@ export function ModelSelect({
   value,
   onChange,
   loading,
+  compact,
 }: {
   models: AIModel[];
   value: string;
   onChange: (modelId: string) => void;
   loading?: boolean;
+  compact?: boolean;
 }) {
   const selected = useMemo(() => models.find((m) => m.id === value) ?? null, [models, value]);
 
@@ -50,7 +52,7 @@ export function ModelSelect({
           className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-sm font-medium text-fg transition-colors hover:bg-surface"
         >
           <Server className="h-3.5 w-3.5 text-muted" aria-hidden />
-          <span>{selected?.name ?? "Select model"}</span>
+          <span className={compact ? "hidden sm:inline" : ""}>{selected?.name ?? "Select model"}</span>
           <ChevronsUpDown className="h-3.5 w-3.5 text-muted" aria-hidden />
         </button>
       )}
