@@ -180,7 +180,11 @@ function AssistantMessage({
             ) : message.content ? (
               <Markdown content={message.content} />
             ) : (
-              <p className="text-muted">Tikjap AI is thinking…</p>
+              <p className="text-muted">
+                {message.model && MODEL_DISPLAY_NAMES[message.model]
+                  ? `${MODEL_DISPLAY_NAMES[message.model]} is thinking…`
+                  : "Tikjap AI is thinking…"}
+              </p>
             )}
             {isStreaming ? <span className="tk-cursor ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 rounded bg-muted align-middle" aria-hidden /> : null}
           </div>

@@ -161,13 +161,23 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
           type="button"
           onClick={toggleSidebar}
           aria-label="Open conversations list"
-          className="rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg lg:hidden"
+          className="rounded-lg p-3 text-muted transition-colors hover:bg-surface hover:text-fg lg:hidden min-w-[44px] min-h-[44px] flex items-center justify-center touch-manipulation"
         >
-          <Menu className="h-5 w-5" aria-hidden />
+          <Menu className="h-6 w-6" aria-hidden />
         </button>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="truncate text-sm font-medium text-fg">{conversation?.conversation?.title ?? "New chat"}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="truncate text-sm font-medium text-fg min-w-0">{conversation?.conversation?.title ?? "New chat"}</p>
+            <ModelSelect
+              models={models}
+              value={effectiveModelId}
+              onChange={(id) => {
+                modelOverrideRef.current = true;
+                setModelId(id);
+              }}
+              loading={modelsData === undefined}
+              compact={false}
+            />
             {chat.isStreaming && streamingModel ? (
               <span className="hidden shrink-0 items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent sm:inline-flex">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
@@ -176,109 +186,101 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
             ) : null}
           </div>
           {chat.contextStats ? (
-            <p className="truncate text-[11px] text-muted">
+            <p className="truncate text-[11px] text-muted mt-1">
               {chat.contextStats.messages} msgs · {chat.contextStats.memories} mem · {chat.contextStats.sources} src · ~{chat.contextStats.estimatedTokens.toLocaleString()} tok
             </p>
           ) : null}
         </div>
-        <ModelSelect
-          models={models}
-          value={effectiveModelId}
-          onChange={(id) => {
-            modelOverrideRef.current = true;
-            setModelId(id);
-          }}
-          loading={modelsData === undefined}
-          compact
-        />
-        {assistants.length > 0 ? (
-          <Dropdown
-            trigger={({ ref, toggle, "aria-expanded": expanded }) => (
-              <button
-                ref={ref}
-                type="button"
-                aria-expanded={expanded}
-                aria-label="Select assistant"
-                onClick={toggle}
-                className={
-                  assistantId
-                    ? "hidden rounded-lg p-2 text-accent transition-colors hover:bg-surface sm:block"
-                    : "hidden rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg sm:block"
-                }
-              >
-                <Bot className="h-5 w-5" aria-hidden />
-              </button>
-            )}
-          >
-            {({ close }) => (
-              <>
-                <DropdownItem
-                  onSelect={() => {
-                    setAssistantId(undefined);
-                    close();
-                  }}
+        <div className="flex items-center gap-1 shrink-0">
+          {assistants.length > 0 ? (
+            <Dropdown
+              trigger={({ ref, toggle, "aria-expanded": expanded }) => (
+                <button
+                  ref={ref}
+                  type="button"
+                  aria-expanded={expanded}
+                  aria-label="Select assistant"
+                  onClick={toggle}
+                  className={
+                    assistantId
+                      ? "rounded-lg p-2 text-accent transition-colors hover:bg-surface"
+                      : "rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg"
+                  }
                 >
-                  No assistant
-                </DropdownItem>
-                {assistants.map((assistant) => (
+                  <Bot className="h-5 w-5" aria-hidden />
+                </button>
+              )}
+            >
+              {({ close }) => (
+                <>
                   <DropdownItem
-                    key={assistant.id}
                     onSelect={() => {
-                      setAssistantId(assistant.id);
+                      setAssistantId(undefined);
                       close();
                     }}
                   >
-                    {assistant.name}
+                    No assistant
                   </DropdownItem>
-                ))}
-              </>
-            )}
-          </Dropdown>
-        ) : null}
-        {conversationId && conversation ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setCompareOpen(true)}
-              aria-label="Compare models on last message"
-              title="Compare models"
-              className="hidden rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg sm:block"
-            >
-              <Columns3 className="h-5 w-5" aria-hidden />
-            </button>
-            <ConversationMenu
-              conversation={conversation.conversation}
-              onRename={() => {
-                setRenameValue(conversation.conversation.title);
-                setRenameOpen(true);
-              }}
-              onDelete={handleDelete}
-              onTogglePin={() =>
-                updateConversation.mutate(
-                  { id: conversationId, pinned: !conversation.conversation.pinned },
-                  {
-                    onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
-                  }
-                )
-              }
-              onToggleArchive={() =>
-                updateConversation.mutate(
-                  { id: conversationId, archived: !conversation.conversation.archived },
-                  {
-                    onSuccess: () => {
-                      if (!conversation.conversation.archived) router.replace("/chat");
-                    },
-                    onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
-                  }
-                )
-              }
-              onExport={() => handleExport(conversation.conversation.title, chat.visibleMessages)}
-              onShare={() => setShareOpen(true)}
-              onCompare={() => setCompareOpen(true)}
-              onPrint={() => window.print()}
-            />
-          </>
-        ) : null}
+                  {assistants.map((assistant) => (
+                    <DropdownItem
+                      key={assistant.id}
+                      onSelect={() => {
+                        setAssistantId(assistant.id);
+                        close();
+                      }}
+                    >
+                      {assistant.name}
+                    </DropdownItem>
+                  ))}
+                </>
+              )}
+            </Dropdown>
+          ) : null}
+          {conversationId && conversation ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setCompareOpen(true)}
+                aria-label="Compare models on last message"
+                title="Compare models"
+                className="hidden rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg sm:block"
+              >
+                <Columns3 className="h-5 w-5" aria-hidden />
+              </button>
+              <ConversationMenu
+                conversation={conversation.conversation}
+                onRename={() => {
+                  setRenameValue(conversation.conversation.title);
+                  setRenameOpen(true);
+                }}
+                onDelete={handleDelete}
+                onTogglePin={() =>
+                  updateConversation.mutate(
+                    { id: conversationId, pinned: !conversation.conversation.pinned },
+                    {
+                      onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
+                    }
+                  )
+                }
+                onToggleArchive={() =>
+                  updateConversation.mutate(
+                    { id: conversationId, archived: !conversation.conversation.archived },
+                    {
+                      onSuccess: () => {
+                        if (!conversation.conversation.archived) router.replace("/chat");
+                      },
+                      onError: (error) => toast({ kind: "error", title: "Could not update conversation", description: toErrorMessage(error) }),
+                    }
+                  )
+                }
+                onExport={() => handleExport(conversation.conversation.title, chat.visibleMessages)}
+                onShare={() => setShareOpen(true)}
+                onCompare={() => setCompareOpen(true)}
+                onPrint={() => window.print()}
+              />
+            </>
+          ) : null}
+        </div>
       </header>
 
       {chat.notice ? (

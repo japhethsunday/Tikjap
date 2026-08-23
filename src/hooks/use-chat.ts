@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { readSseEvents } from "@/lib/api/stream";
 import { errorMessage } from "@/lib/api";
-import type { AttachmentRef, ChatMessage, ContextStats, MessageStatus, StreamChunk } from "@/lib/types";
+import type { ChatMessage, ContextStats, MessageStatus, StreamChunk } from "@/lib/types";
 
 function localId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -130,22 +130,6 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
       // strictly after the user message it responds to, even within the same ms.
       const nowMs = Date.now();
 
-      const userMessage: ChatMessage | null =
-        request.regenerateMessageId || continuing
-          ? null
-          : {
-              id: localId("user"),
-              conversationId,
-              role: "user",
-              content: request.content,
-              status: "complete",
-              model: requestModelId,
-              attachments: request.attachmentIds.length
-                ? (request.attachmentIds.map((id) => ({ fileId: id, name: "", size: 0, mimeType: "" }) as AttachmentRef) as AttachmentRef[])
-                : undefined,
-              createdAt: new Date(nowMs).toISOString(),
-            };
-
       let seedContent = "";
       if (continuing) {
         streamAssistantId = request.continueFromMessageId!;
@@ -173,16 +157,14 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
           return next;
         });
       }
-      if (userMessage) {
-        setPending((current) => [...current, userMessage]);
-      }
+      // Do NOT create optimistic user message — server inserts it.
+      // Only the assistant message is created optimistically for streaming.
       setPending((current) => {
         const withoutStreamTarget = current.filter((m) => m.id !== streamAssistantId);
         return [...withoutStreamTarget, assistantMessage];
       });
 
       let accumulated = seedContent;
-      const optimisticUserId = userMessage?.id ?? null;
       const optimisticAssistantId = assistantMessage.id;
       try {
         const { reader } = await api.messages.start(
@@ -208,7 +190,6 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         if (controller.signal.aborted) {
           setPending((current) =>
             current
-              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
               .filter((m) => m.id !== optimisticAssistantId)
               .map((m) => (m.id === streamAssistantId ? { ...m, status: "stopped", content: accumulated } : m))
           );
@@ -216,7 +197,6 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         } else {
           setPending((current) =>
             current
-              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
               .filter((m) => m.id !== optimisticAssistantId)
               .map((m) =>
                 m.id === streamAssistantId
@@ -231,7 +211,6 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         if (controller.signal.aborted) {
           setPending((current) =>
             current
-              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
               .filter((m) => m.id !== optimisticAssistantId)
               .map((m) => (m.id === streamAssistantId ? { ...m, status: "stopped", content: accumulated } : m))
           );
@@ -240,7 +219,6 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
           const message = errorMessage(streamError);
           setPending((current) =>
             current
-              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
               .filter((m) => m.id !== optimisticAssistantId)
               .map((m) => (m.id === streamAssistantId ? { ...m, status: "error", content: accumulated } : m))
           );
@@ -272,7 +250,6 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
           const finalStatus: MessageStatus = chunk.status ?? "complete";
           setPending((current) =>
             current
-              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
               .filter((m) => m.id !== optimisticAssistantId)
               .map((m) =>
                 m.id === streamAssistantId
@@ -285,7 +262,6 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         } else if (chunk.type === "error") {
           setPending((current) =>
             current
-              .filter((m) => !(optimisticUserId && m.id === optimisticUserId))
               .filter((m) => m.id !== optimisticAssistantId)
               .map((m) => (m.id === streamAssistantId ? { ...m, status: "error" } : m))
           );
