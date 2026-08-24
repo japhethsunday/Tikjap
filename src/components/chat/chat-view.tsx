@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
   ArchiveRestore,
@@ -78,7 +78,25 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
   }, [conversationId, conversationModel]);
   const [assistantId, setAssistantId] = useState<string | undefined>(undefined);
 
-  const [enabledTools, setEnabledTools] = useState<ToolPermission[]>([]);
+  // Home's quick actions hand the task over through the URL: ?prompt= seeds the
+  // composer and ?tool= pre-enables the capability that action is about.
+  const searchParams = useSearchParams();
+  const seedPrompt = searchParams.get("prompt") ?? undefined;
+  const seedTool = searchParams.get("tool");
+
+  // Seed from the param at mount rather than in an effect — writing state
+  // synchronously inside an effect just triggers a second render pass.
+  const [enabledTools, setEnabledTools] = useState<ToolPermission[]>(() =>
+    seedTool ? [seedTool as ToolPermission] : []
+  );
+
+  // Strip the params once consumed so a refresh or back-navigation cannot
+  // re-apply them over what the user has since typed. This touches history
+  // rather than React state, which is what an effect is for.
+  useEffect(() => {
+    if (!seedPrompt && !seedTool) return;
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [seedPrompt, seedTool]);
 
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -346,6 +364,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
         }}
         enabledTools={enabledTools}
         toolAvailability={modelsData?.tools}
+        seedText={seedPrompt}
         onToolsChange={setEnabledTools}
       />
 

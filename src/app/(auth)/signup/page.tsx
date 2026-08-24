@@ -21,7 +21,7 @@ export default function SignupPage() {
   const [pendingConfirmation, setPendingConfirmation] = useState(false);
 
   useEffect(() => {
-    if (user) router.replace("/chat");
+    if (user) router.replace("/home");
   }, [user, router]);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -39,7 +39,7 @@ export default function SignupPage() {
         setPendingConfirmation(true);
         return;
       }
-      router.replace("/chat");
+      router.replace("/home");
     } catch (error) {
       setErrors({ form: errorMessage(error) });
     } finally {

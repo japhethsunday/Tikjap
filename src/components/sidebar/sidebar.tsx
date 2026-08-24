@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Bookmark,
   ChevronsUpDown,
+  Home,
   CheckSquare,
   Folder,
   FolderOpen,
@@ -48,6 +50,12 @@ const COLOR_DOT: Record<string, string> = {
   blue: "bg-blue-500",
   violet: "bg-violet-500",
 };
+
+const NAV_ITEMS = [
+  { href: "/home", label: "Home", icon: <Home className="h-4 w-4" aria-hidden /> },
+  { href: "/projects", label: "Projects", icon: <Folder className="h-4 w-4" aria-hidden /> },
+  { href: "/bookmarks", label: "Saved", icon: <Bookmark className="h-4 w-4" aria-hidden /> },
+];
 
 function dateGroup(iso: string): string {
   const time = new Date(iso).getTime();
@@ -207,6 +215,29 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         </div>
 
         <div className="space-y-2.5 px-3 pb-3">
+          {/* Primary destinations. Deliberately short: only routes that exist
+              and do something appear here. */}
+          <nav aria-label="Primary" className="space-y-0.5 pb-1">
+            {NAV_ITEMS.map((item) => {
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return (
+                <button
+                  key={item.href}
+                  type="button"
+                  onClick={() => go(item.href)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
+                    active ? "bg-elevated text-fg" : "text-muted hover:bg-elevated/70 hover:text-fg"
+                  )}
+                >
+                  <span className={cn("shrink-0", active ? "text-accent" : "text-muted")}>{item.icon}</span>
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+
           <button
             type="button"
             onClick={() => go("/chat")}

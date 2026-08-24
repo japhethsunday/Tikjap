@@ -3,6 +3,9 @@ import type { UploadedFile } from "../../types";
 
 export function createFilesService(client: ApiClient) {
   return {
+    list(): Promise<{ files: UploadedFile[] }> {
+      return client.get("/files");
+    },
     upload(file: File, options: { onProgress?: (percent: number) => void; signal?: AbortSignal } = {}): Promise<{ file: UploadedFile }> {
       return client.upload("/files", file, options);
     },

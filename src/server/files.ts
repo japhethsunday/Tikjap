@@ -1,5 +1,5 @@
 import { HttpError } from "./errors";
-import { deleteFileRecord, getFile, insertFile, uid, type FileRow } from "./store";
+import { deleteFileRecord, getFile, insertFile, listFiles, uid, type FileRow } from "./store";
 import { createServiceClient } from "./supabase";
 import { ALLOWED_FILE_EXTENSIONS, MAX_FILE_SIZE_BYTES, fileKindFromExtension, getFileExtension } from "@/lib/constants";
 
@@ -120,4 +120,8 @@ export function publicFile(file: FileRow) {
     kind: file.kind,
     createdAt: file.created_at,
   };
+}
+
+export async function listUserFiles(userId: string, limit?: number): Promise<FileRow[]> {
+  return listFiles(userId, limit);
 }

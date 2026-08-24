@@ -3,7 +3,15 @@ import { withHandler } from "@/server/handler";
 import { HttpError } from "@/server/errors";
 import { requireUser } from "@/server/http";
 import { rateLimit } from "@/server/rate-limit";
-import { handleFileUpload, publicFile } from "@/server/files";
+import { handleFileUpload, listUserFiles, publicFile } from "@/server/files";
+
+export async function GET() {
+  return withHandler(async () => {
+    const { user } = await requireUser();
+    const files = await listUserFiles(user.id);
+    return { files: files.map(publicFile) };
+  });
+}
 
 export async function POST(request: NextRequest) {
   return withHandler(async () => {

@@ -269,3 +269,12 @@ export function useStorageUsage() {
     queryFn: () => api.workspace.storageUsage(),
   });
 }
+
+/** The current user's uploaded files, newest first. */
+export function useFiles() {
+  return useQuery({
+    queryKey: ["files"],
+    queryFn: () => api.files.list(),
+    staleTime: 30_000,
+  });
+}

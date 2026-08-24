@@ -34,7 +34,7 @@ function LoginForm() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (user) router.replace("/chat");
+    if (user) router.replace("/home");
   }, [user, router]);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -49,7 +49,7 @@ function LoginForm() {
     try {
       await login({ email, password });
       const next = searchParams.get("next");
-      router.replace(next && next.startsWith("/") ? next : "/chat");
+      router.replace(next && next.startsWith("/") ? next : "/home");
     } catch (error) {
       setErrors({ form: errorMessage(error) });
     } finally {

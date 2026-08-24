@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, useEffect,} from "react";
 import { ArrowUp, Paperclip, Square, Slash, Server, Check, ChevronsUpDown, Eye, FileText, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AttachmentChip } from "./attachment-chip";
@@ -33,6 +33,7 @@ export function Composer({
   enabledTools = [],
   onToolsChange,
   toolAvailability,
+  seedText,
 }: {
   onSend: (content: string, attachmentIds: string[]) => void;
   onStop: () => void;
@@ -46,8 +47,12 @@ export function Composer({
   enabledTools?: ToolPermission[];
   onToolsChange?: (tools: ToolPermission[]) => void;
   toolAvailability?: ToolAvailability[];
+  /** Prefills the input once — used by Home's quick actions. */
+  seedText?: string;
 }) {
   const [value, setValue] = useState("");
+  // Apply the seed exactly once, and never clobber something already typed.
+  const seededRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -80,6 +85,20 @@ export function Composer({
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
+
+  useEffect(() => {
+    if (seededRef.current || !seedText) return;
+    seededRef.current = true;
+    setValue(seedText);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      // Caret at the end so the user types straight into the seeded prompt.
+      el.setSelectionRange(el.value.length, el.value.length);
+      resize();
+    });
+  }, [seedText, resize]);
 
   const applyPrompt = useCallback((body: string) => {
     const variables = [...new Set(Array.from(body.matchAll(/\{\{\s*([\w.-]+)\s*\}\}/g)).map((m) => m[1]))];

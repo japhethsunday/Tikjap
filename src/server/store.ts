@@ -800,6 +800,21 @@ export async function insertFile(record: {
   return data as unknown as FileRow;
 }
 
+/**
+ * A user's uploaded files, newest first. Scoped by user_id, so one account can
+ * never enumerate another's uploads.
+ */
+export async function listFiles(userId: string, limit = 100, db: Db = createServiceClient()): Promise<FileRow[]> {
+  const { data, error } = await db
+    .from("files")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 200));
+  if (error) throw new HttpError(500, "internal", "Could not load files.");
+  return (data ?? []) as FileRow[];
+}
+
 export async function getFile(userId: string, fileId: string, db: Db = createServiceClient()): Promise<FileRow> {
   const { data, error } = await db.from("files").select("*").eq("id", fileId).eq("user_id", userId).maybeSingle();
   if (error || !data) throw new HttpError(404, "not_found", "File not found.");
