@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+
+  "//": [
+    "Functions run in dub1 (Dublin) to sit next to the Supabase project, which",
+    "is in eu-west-1. Without this Vercel defaults to iad1 (Washington DC) and",
+    "every database query crosses the Atlantic — roughly 70-90ms each way.",
+    "A chat turn issues a dozen sequential queries, so the round trips alone",
+    "cost close to a second before any inference starts.",
+    "If the Supabase project is ever moved, move this with it."
+  ],
+  "regions": ["dub1"]
+}

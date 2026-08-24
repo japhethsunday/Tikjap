@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Bookmark,
   ChevronsUpDown,
+  Code2,
   Home,
   CheckSquare,
   Folder,
@@ -53,6 +54,7 @@ const COLOR_DOT: Record<string, string> = {
 
 const NAV_ITEMS = [
   { href: "/home", label: "Home", icon: <Home className="h-4 w-4" aria-hidden /> },
+  { href: "/code", label: "Code", icon: <Code2 className="h-4 w-4" aria-hidden /> },
   { href: "/projects", label: "Projects", icon: <Folder className="h-4 w-4" aria-hidden /> },
   { href: "/bookmarks", label: "Saved", icon: <Bookmark className="h-4 w-4" aria-hidden /> },
 ];

@@ -278,3 +278,52 @@ export function useFiles() {
     staleTime: 30_000,
   });
 }
+
+// ---- Code workspace ------------------------------------------------------
+
+export function useProjectFiles(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["project-files", projectId],
+    queryFn: () => api.projects.files(projectId as string),
+    enabled: Boolean(projectId),
+    staleTime: 10_000,
+  });
+}
+
+export function useWriteProjectFile(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { path: string; content?: string }) =>
+      api.projects.writeFile(projectId as string, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project-files", projectId] });
+    },
+  });
+}
+
+export function useUpdateProjectFile(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ fileId, ...patch }: { fileId: string; content?: string; path?: string }) =>
+      api.projects.updateFile(projectId as string, fileId, patch),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project-files", projectId] });
+    },
+  });
+}
+
+export function useDeleteProjectFile(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (fileId: string) => api.projects.deleteFile(projectId as string, fileId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project-files", projectId] });
+    },
+  });
+}
+
+export function useRunProjectFile(projectId: string | undefined) {
+  return useMutation({
+    mutationFn: (fileId: string) => api.projects.runFile(projectId as string, fileId),
+  });
+}

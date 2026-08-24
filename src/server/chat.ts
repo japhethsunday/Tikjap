@@ -148,16 +148,22 @@ export function startGeneration(params: GenerationParams): GenerationResult {
       let firstTokenAt = 0;
 
       try {
+        // These two are independent — the conversation lookup and the quota
+        // check touch different tables. Running them in sequence cost a full
+        // round trip each, which is the dominant latency now that every query
+        // is a network hop rather than a local call.
         let conversation: ConversationRow;
         try {
-          conversation = await getConversationRow(user.id, conversationId, db);
+          const [row] = await Promise.all([
+            getConversationRow(user.id, conversationId, db),
+            assertWithinLimits(user.id),
+          ]);
+          conversation = row;
         } catch (error) {
           send({ type: "error", error: messageOf(error) });
           return;
         }
         title = conversation.title;
-
-        await assertWithinLimits(user.id);
 
         if (fellBack && requestedModelId) {
           send({ type: "notice", notice: `The selected model is unavailable; used ${model.name} instead.` });

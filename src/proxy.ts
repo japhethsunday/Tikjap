@@ -9,7 +9,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/env";
  * rendered for signed-out visitors (the API calls behind them still 401'd,
  * but the pages should never have been reachable).
  */
-const PROTECTED_PATHS = ["/home", "/chat", "/projects", "/bookmarks", "/settings", "/admin"];
+const PROTECTED_PATHS = ["/home", "/chat", "/code", "/projects", "/bookmarks", "/settings", "/admin"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -48,6 +48,7 @@ export const config = {
   matcher: [
     "/home/:path*",
     "/chat/:path*",
+    "/code/:path*",
     "/projects/:path*",
     "/bookmarks/:path*",
     "/settings/:path*",

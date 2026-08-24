@@ -3,7 +3,9 @@ import type {
   ActivityEntry,
   Assistant,
   Memory,
+  CodeRunResult,
   Project,
+  ProjectFile,
   ProjectSource,
   SavedPrompt,
   Schedule,
@@ -54,6 +56,27 @@ export function createProjectsService(client: ApiClient) {
     },
     activity(id: string): Promise<{ activity: ActivityEntry[] }> {
       return client.get(`/projects/${id}/activity`);
+    },
+
+    // ---- Code workspace files ------------------------------------------
+    files(id: string): Promise<{ files: ProjectFile[] }> {
+      return client.get(`/projects/${id}/files`);
+    },
+    writeFile(id: string, input: { path: string; content?: string }): Promise<{ file: ProjectFile }> {
+      return client.post(`/projects/${id}/files`, input);
+    },
+    updateFile(
+      id: string,
+      fileId: string,
+      patch: { content?: string; path?: string }
+    ): Promise<{ file: ProjectFile }> {
+      return client.patch(`/projects/${id}/files/${fileId}`, patch);
+    },
+    deleteFile(id: string, fileId: string): Promise<void> {
+      return client.delete(`/projects/${id}/files/${fileId}`);
+    },
+    runFile(id: string, fileId: string): Promise<{ run: CodeRunResult }> {
+      return client.post(`/projects/${id}/files/${fileId}/run`, {});
     },
   };
 }

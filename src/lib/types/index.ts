@@ -337,3 +337,24 @@ export interface PublicInfo {
   billingEnabled: boolean;
   plans?: Array<{ name: string; price: number; features: string[] }>;
 }
+
+/** A source file in the Code workspace. */
+export interface ProjectFile {
+  id: string;
+  path: string;
+  content: string;
+  language: string | null;
+  sizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Result of running a file in the sandbox. */
+export interface CodeRunResult {
+  ok: boolean;
+  logs: string[];
+  result?: string;
+  error?: string;
+  durationMs: number;
+  timedOut: boolean;
+}
