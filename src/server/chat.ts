@@ -299,6 +299,19 @@ export function startGeneration(params: GenerationParams): GenerationResult {
                 });
               }
             }
+            if (model.capabilities.toolUse && enabledTools.includes("url_analysis")) {
+              const urlAnalysisTool = getTool("url_analysis");
+              if (urlAnalysisTool) {
+                availableTools.push({
+                  type: "function",
+                  function: {
+                    name: urlAnalysisTool.id,
+                    description: urlAnalysisTool.description,
+                    parameters: urlAnalysisTool.inputSchema as { type: "object"; properties: Record<string, { type: string; description: string }>; required: string[] },
+                  },
+                });
+              }
+            }
 
             while (true) {
               accumulatedToolCalls = [];
