@@ -312,6 +312,19 @@ export function startGeneration(params: GenerationParams): GenerationResult {
                 });
               }
             }
+            if (model.capabilities.toolUse && enabledTools.includes("data_analysis")) {
+              const dataAnalysisTool = getTool("data_analysis");
+              if (dataAnalysisTool) {
+                availableTools.push({
+                  type: "function",
+                  function: {
+                    name: dataAnalysisTool.id,
+                    description: dataAnalysisTool.description,
+                    parameters: dataAnalysisTool.inputSchema as { type: "object"; properties: Record<string, { type: string; description: string }>; required: string[] },
+                  },
+                });
+              }
+            }
 
             while (true) {
               accumulatedToolCalls = [];
