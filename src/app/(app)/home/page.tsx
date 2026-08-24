@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -15,25 +15,24 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth";
-import { useConversations, useCreateConversation } from "@/hooks/use-conversations";
+import { useCreateConversation } from "@/hooks/use-conversations";
 import { useFiles, useProjects, useSavedPrompts, useStorageUsage } from "@/hooks/use-platform";
 import { useModels } from "@/hooks/use-models";
-import { Skeleton } from "@/components/ui";
-import { cn, formatBytes, timeAgo } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import type { ToolPermission } from "@/lib/types";
 
 /**
  * The workspace home.
  *
- * The primary element is a composer, not a search box: the job of this screen
- * is to start work. Search lives in the sidebar, which owns the conversation
- * list — having it in both places made the two compete for the same intent.
+ * One job: start work. The composer is the centred hero, and everything that
+ * already lives somewhere else is left there — the sidebar owns conversation
+ * search and the recent-conversation list, so repeating either here put the
+ * same five rows on screen twice.
  *
- * Everything rendered is backed by a live query. Sections with no data are
- * omitted entirely rather than showing a placeholder that describes what would
- * be there, and a quick action whose tool the deployment cannot run is hidden
- * rather than shown greyed out. An empty account therefore sees a composer and
- * nothing else, which is the honest state of it.
+ * What remains below the composer is the material the sidebar does not show:
+ * projects, uploaded files and saved prompts. Each renders only when it has
+ * content, so an empty account gets a composer and nothing else, which is the
+ * honest state of it.
  */
 
 interface QuickAction {
@@ -91,7 +90,7 @@ function SectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="mb-2.5 flex items-baseline justify-between gap-3">
+    <div className="mb-2 flex items-baseline justify-between gap-3">
       <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted">{title}</h2>
       {action && onAction ? (
         <button
@@ -111,18 +110,14 @@ export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
   const [draft, setDraft] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const createConversation = useCreateConversation();
-  const { conversations: allConversations, isLoading: loadingConversations } = useConversations();
-  const { data: projectsData, isLoading: loadingProjects } = useProjects();
+  const { data: projectsData } = useProjects();
   const { data: filesData } = useFiles();
   const { data: promptsData } = useSavedPrompts();
   const { data: storage } = useStorageUsage();
   const { data: modelsData } = useModels();
 
-  // Newest first; the list endpoint has no limit param, so trim client-side.
-  const conversations = allConversations.slice(0, 6);
   const projects = (projectsData?.projects ?? []).filter((project) => !project.archived);
   const files = filesData?.files ?? [];
   const prompts = promptsData?.prompts ?? [];
@@ -171,17 +166,18 @@ export default function HomePage() {
   };
 
   const busy = createConversation.isPending;
-  const hasAside = projects.length > 0 || files.length > 0 || prompts.length > 0;
+  const hasShelf = projects.length > 0 || files.length > 0 || prompts.length > 0;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 lg:py-14">
-        <header className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-[28px]">{greeting}</h1>
-        </header>
+      <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 sm:px-6">
+        {/* The composer sits in the optical centre of the page rather than
+            pinned under the heading with the rest of the screen left empty. */}
+        <div className="flex flex-1 flex-col justify-center py-12">
+          <h1 className="mb-5 text-center text-2xl font-semibold tracking-tight text-fg sm:text-[30px]">
+            {greeting}
+          </h1>
 
-        {/* The primary action: start work, without navigating first. */}
-        <div className="mb-10">
           <form
             onSubmit={submit}
             className="rounded-2xl border border-line bg-elevated shadow-sm transition-colors focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/20"
@@ -191,15 +187,14 @@ export default function HomePage() {
             </label>
             <textarea
               id="home-composer"
-              ref={textareaRef}
-              rows={2}
+              rows={3}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={onKeyDown}
               placeholder="What would you like to work on?"
-              className="w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-fg placeholder:text-muted/60 focus:outline-none"
+              className="w-full resize-none bg-transparent px-4 pt-4 text-[15px] leading-relaxed text-fg placeholder:text-muted/60 focus:outline-none"
             />
-            <div className="flex items-center justify-between gap-3 px-3 pb-3">
+            <div className="flex items-end justify-between gap-3 px-3 pb-3">
               <div className="flex flex-wrap items-center gap-1.5">
                 {actions.map((action) => (
                   <button
@@ -230,114 +225,71 @@ export default function HomePage() {
           </form>
         </div>
 
-        <div className={cn("grid gap-8", hasAside && "lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]")}>
-          {/* ---------------- Continue previous work ---------------- */}
-          <section>
-            <SectionHeader
-              title="Recent"
-              action={conversations.length > 0 ? "All chats" : undefined}
-              onAction={() => router.push("/chat")}
-            />
-            {loadingConversations ? (
-              <Skeleton className="h-40 w-full rounded-xl" />
-            ) : conversations.length === 0 ? (
-              <p className="text-sm text-muted">Your conversations will appear here.</p>
-            ) : (
-              // One bordered container with dividers rather than a stack of
-              // floating cards: the same rows at a fraction of the visual noise.
-              <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-elevated">
-                {conversations.map((conversation) => (
-                  <li key={conversation.id}>
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/chat/${conversation.id}`)}
-                      className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">
-                        {conversation.title}
-                      </span>
-                      <span className="hidden shrink-0 text-[11px] tabular-nums text-muted sm:inline">
-                        {conversation.messageCount} msg
-                      </span>
-                      <span className="shrink-0 text-[11px] text-muted">{timeAgo(conversation.updatedAt)}</span>
-                      <ArrowRight
-                        className="h-3.5 w-3.5 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100"
-                        aria-hidden
-                      />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+        {/* Secondary material, below the fold on a short viewport. Nothing here
+            duplicates the sidebar. */}
+        {hasShelf ? (
+          <div className="grid gap-7 border-t border-line py-8 sm:grid-cols-2 lg:grid-cols-3">
+            {projects.length > 0 ? (
+              <section>
+                <SectionHeader title="Projects" action="Open" onAction={() => router.push("/projects")} />
+                <ul className="space-y-0.5">
+                  {projects.slice(0, 4).map((project) => (
+                    <li key={project.id}>
+                      <button
+                        type="button"
+                        onClick={() => router.push("/projects")}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{project.name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
-          {hasAside ? (
-            <div className="space-y-7">
-              {/* ---------------- Projects ---------------- */}
-              {loadingProjects ? null : projects.length > 0 ? (
-                <section>
-                  <SectionHeader title="Projects" action="Open" onAction={() => router.push("/projects")} />
-                  <ul className="space-y-1">
-                    {projects.slice(0, 4).map((project) => (
-                      <li key={project.id}>
-                        <button
-                          type="button"
-                          onClick={() => router.push("/projects")}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface"
-                        >
-                          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
-                          <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{project.name}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
+            {files.length > 0 ? (
+              <section>
+                <SectionHeader title="Files" />
+                <ul className="space-y-0.5">
+                  {files.slice(0, 4).map((file) => (
+                    <li key={file.id} className="flex items-center gap-2.5 px-2 py-1.5 text-[13px]">
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                      <span className="min-w-0 flex-1 truncate text-fg">{file.name}</span>
+                      <span className="shrink-0 text-[11px] tabular-nums text-muted">{formatBytes(file.size)}</span>
+                    </li>
+                  ))}
+                </ul>
+                {storage && storage.fileCount > 4 ? (
+                  <p className="mt-1.5 px-2 text-[11px] text-muted">
+                    {formatBytes(storage.usedBytes)} across {storage.fileCount} files
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
 
-              {/* ---------------- Files ---------------- */}
-              {files.length > 0 ? (
-                <section>
-                  <SectionHeader title="Files" />
-                  <ul className="space-y-1">
-                    {files.slice(0, 4).map((file) => (
-                      <li key={file.id} className="flex items-center gap-2.5 px-2 py-1.5 text-[13px]">
-                        <FileText className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate text-fg">{file.name}</span>
-                        <span className="shrink-0 text-[11px] tabular-nums text-muted">{formatBytes(file.size)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  {storage && storage.fileCount > files.slice(0, 4).length ? (
-                    <p className="mt-1.5 px-2 text-[11px] text-muted">
-                      {formatBytes(storage.usedBytes)} across {storage.fileCount} files
-                    </p>
-                  ) : null}
-                </section>
-              ) : null}
-
-              {/* ---------------- Saved prompts ---------------- */}
-              {prompts.length > 0 ? (
-                <section>
-                  <SectionHeader title="Saved" action="All" onAction={() => router.push("/bookmarks")} />
-                  <ul className="space-y-1">
-                    {prompts.slice(0, 4).map((prompt) => (
-                      <li key={prompt.id}>
-                        <button
-                          type="button"
-                          onClick={() => void start(prompt.body)}
-                          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface"
-                        >
-                          <Zap className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
-                          <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{prompt.title}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+            {prompts.length > 0 ? (
+              <section>
+                <SectionHeader title="Saved" action="All" onAction={() => router.push("/bookmarks")} />
+                <ul className="space-y-0.5">
+                  {prompts.slice(0, 4).map((prompt) => (
+                    <li key={prompt.id}>
+                      <button
+                        type="button"
+                        onClick={() => void start(prompt.body)}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface"
+                      >
+                        <Zap className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{prompt.title}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
