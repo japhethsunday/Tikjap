@@ -39,6 +39,12 @@ export interface OrchestrationResult {
   calls: ToolCallRecord[];
   /** System-role observations to append to the generation context. */
   observations: ChatMessageInput[];
+  /**
+   * User-facing explanation when tools were requested but did not run. Without
+   * this a swallowed planning failure is indistinguishable from a tool that
+   * simply chose not to fire, and the whole feature looks dead.
+   */
+  notice?: string;
 }
 
 export interface OrchestrateParams {
@@ -71,10 +77,19 @@ function toToolDefinition(id: ToolPermission): ToolDefinition | null {
 
 export async function orchestrate(params: OrchestrateParams): Promise<OrchestrationResult> {
   const empty: OrchestrationResult = { calls: [], observations: [] };
+  if (params.enabledTools.length === 0) return empty;
 
   // Only tools the user turned on AND this deployment can actually run.
   const enabled = params.enabledTools.filter((id) => isToolAvailable(id));
-  if (enabled.length === 0) return empty;
+  if (enabled.length === 0) {
+    const names = params.enabledTools
+      .map((id) => getServerTool(id)?.name ?? id)
+      .join(", ");
+    return {
+      ...empty,
+      notice: `${names} is not configured on this deployment, so it was skipped.`,
+    };
+  }
 
   const tools = enabled.map(toToolDefinition).filter((tool): tool is ToolDefinition => tool !== null);
   if (tools.length === 0) return empty;
@@ -119,7 +134,12 @@ export async function orchestrate(params: OrchestrateParams): Promise<Orchestrat
         detail: (error instanceof Error ? error.message : String(error)).slice(0, 200),
       })
     );
-    return empty;
+    // Tell the user rather than answering as though no tool was ever asked for.
+    return {
+      ...empty,
+      notice:
+        "Tools could not run for this message — the model could not be reached for tool planning. The answer below was written without them.",
+    };
   }
 
   const requested = plan.toolCalls

@@ -150,11 +150,26 @@ describe("orchestrate", () => {
     expect(result.observations[0].content).toContain("(failed)");
   });
 
-  it("falls back to an untooled answer when planning fails", async () => {
+  it("falls back to an untooled answer when planning fails, and says so", async () => {
     planMock.mockRejectedValue(new Error("gateway down"));
     const result = await orchestrate(makeParams());
     expect(result.calls).toEqual([]);
     expect(result.observations).toEqual([]);
+    // A silent fallback is indistinguishable from a dead feature.
+    expect(result.notice).toMatch(/could not run/i);
+  });
+
+  it("explains when an enabled tool is unconfigured on this deployment", async () => {
+    // web_search needs a provider key; without one it must not fail silently.
+    const result = await orchestrate(makeParams({ enabledTools: ["web_search"] }));
+    expect(result.calls).toEqual([]);
+    expect(result.notice).toMatch(/not configured/i);
+    expect(planMock).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when no tools were requested at all", async () => {
+    const result = await orchestrate(makeParams({ enabledTools: [] }));
+    expect(result.notice).toBeUndefined();
   });
 
   it("stops executing once the turn is aborted", async () => {

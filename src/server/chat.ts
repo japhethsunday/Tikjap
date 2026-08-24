@@ -332,6 +332,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
               });
               toolCalls = orchestration.calls;
               providerMessages.push(...orchestration.observations);
+              if (orchestration.notice) send({ type: "notice", notice: orchestration.notice });
             } catch (error) {
               // A broken orchestrator must never cost the user their answer.
               console.error("[chat/tools]", String(error).slice(0, 200));
