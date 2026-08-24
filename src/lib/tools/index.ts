@@ -2,3 +2,4 @@ export * from "./types";
 export * from "./registry";
 export * from "./executor";
 export * from "./permissions";
+export * from "./web-search";

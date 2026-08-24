@@ -39,6 +39,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       continueFromMessageId: body.continue ? body.continueMessageId : undefined,
       removeFromMessageId: body.removeFromMessageId,
       assistantId: body.assistantId,
+      enabledTools: body.enabledTools,
       signal: request.signal,
     });
     return new NextResponse(generation.stream, {

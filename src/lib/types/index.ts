@@ -170,6 +170,7 @@ export interface ChatRequest {
   continueMessageId?: string;
   removeFromMessageId?: string;
   assistantId?: string;
+  enabledTools?: string[];
 }
 
 export interface Project {

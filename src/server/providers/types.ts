@@ -8,9 +8,50 @@ export interface TextPart {
   text: string;
 }
 
+export interface ToolCallPart {
+  type: "tool_call";
+  tool_call: {
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+}
+
+export interface ToolResultPart {
+  type: "tool_result";
+  tool_result: {
+    tool_call_id: string;
+    content: string;
+    success: boolean;
+  };
+}
+
 export interface ChatMessageInput {
-  role: "system" | "user" | "assistant";
-  content: string | Array<TextPart | ImagePart>;
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | Array<TextPart | ImagePart | ToolCallPart | ToolResultPart>;
+  tool_calls?: Array<{
+    id: string;
+    type: "function";
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+  tool_call_id?: string;
+  name?: string;
+}
+
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: "object";
+      properties: Record<string, { type: string; description: string }>;
+      required: string[];
+    };
+  };
 }
 
 export interface UpstreamRequest {
@@ -21,6 +62,8 @@ export interface UpstreamRequest {
   temperature: number;
   topP: number;
   thinking?: boolean;
+  tools?: ToolDefinition[];
+  toolChoice?: "auto" | "none" | { type: "function"; function: { name: string } };
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -29,6 +72,12 @@ export interface UpstreamRequest {
 export interface UpstreamDelta {
   delta?: string;
   finishReason?: string;
+  toolCalls?: Array<{
+    index: number;
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }>;
 }
 
 export type ProviderErrorCode =

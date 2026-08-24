@@ -35,11 +35,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModel, defaultModel, getUpstream } from "./models";
 import { TIKJAP_IDENTITY_PROMPT } from "./identity";
 import { nimProvider } from "./providers/nim";
-import { ChatMessageInput, ProviderError, PROVIDER_DOWN_MESSAGE } from "./providers/types";
+import { ChatMessageInput, ProviderError, PROVIDER_DOWN_MESSAGE, ToolDefinition } from "./providers/types";
 import { assertWithinLimits, recordRequest, recordUsage } from "./usage";
 import { readFileContent } from "./files";
 import { titleFromContent, formatBytes } from "@/lib/utils";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "@/lib/constants";
+import { getTool, getAllTools, executeTool } from "@/lib/tools";
 import type {
   AIModel,
   AttachmentRef,
@@ -90,6 +91,7 @@ export interface GenerationParams {
   removeFromMessageId?: string;
   continueFromMessageId?: string;
   assistantId?: string;
+  enabledTools?: string[];
   signal?: AbortSignal;
 }
 
@@ -101,7 +103,7 @@ export interface GenerationResult {
 const PLAN_OUTPUT_CAPS: Record<string, number> = { free: 1200, pro: 5000, team: 16000 };
 
 export function startGeneration(params: GenerationParams): GenerationResult {
-  const { user, conversationId, signal } = params;
+  const { user, conversationId, signal, enabledTools = [] } = params;
   const content = params.content.trim();
   const requestedModelId = params.modelId;
   const encoder = new TextEncoder();
@@ -270,36 +272,122 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           }
 
           try {
+            // eslint-disable-next-line prefer-const
             let streamed = "";
+            // eslint-disable-next-line prefer-const
             let deltaCount = 0;
-            for await (const part of nimProvider.streamChat({
-              model: upstream.model,
-              messages: providerMessages,
-              maxTokens: Math.min(model.maxOutputTokens, upstream.maxTokens ?? 8_000),
-              temperature: upstream.temperature ?? 0.7,
-              topP: upstream.topP ?? 0.95,
-              thinking: upstream.thinking,
-              signal: stopController.signal,
-            })) {
-              if (stopController.signal.aborted) break;
-              if (!part.delta) continue;
-              if (!firstTokenAt) firstTokenAt = Date.now();
-              streamed += part.delta;
-              sentText += part.delta;
-              send({ type: "delta", content: part.delta });
-              deltaCount += 1;
-              if (deltaCount % 25 === 0) {
-                const row = await getMessageRow(conversationId, assistantMessageId, db).catch(() => undefined);
-                if (row && row.status !== "streaming") {
-                  stopRequested = true;
-                  break;
-                }
+            let accumulatedToolCalls: Array<{
+              index: number;
+              id: string;
+              type: "function";
+              function: { name: string; arguments: string };
+            }> = [];
+            let pendingToolCalls = false;
+
+            // Get available tools for this model
+            const availableTools: ToolDefinition[] = [];
+            if (model.capabilities.toolUse && enabledTools.includes("web_search")) {
+              const webSearchTool = getTool("web_search");
+              if (webSearchTool) {
+                availableTools.push({
+                  type: "function",
+                  function: {
+                    name: webSearchTool.id,
+                    description: webSearchTool.description,
+                    parameters: webSearchTool.inputSchema as { type: "object"; properties: Record<string, { type: string; description: string }>; required: string[] },
+                  },
+                });
               }
             }
-            if (!stopRequested && !stopController.signal.aborted && !streamed.trim()) {
+
+            while (true) {
+              accumulatedToolCalls = [];
+              pendingToolCalls = false;
+              let streamed = "";
+              let deltaCount = 0;
+
+              for await (const part of nimProvider.streamChat({
+                model: upstream.model,
+                messages: providerMessages,
+                maxTokens: Math.min(model.maxOutputTokens, upstream.maxTokens ?? 8_000),
+                temperature: upstream.temperature ?? 0.7,
+                topP: upstream.topP ?? 0.95,
+                thinking: upstream.thinking,
+                signal: stopController.signal,
+                tools: availableTools.length > 0 ? availableTools : undefined,
+                toolChoice: availableTools.length > 0 ? "auto" : undefined,
+              })) {
+                if (stopController.signal.aborted) break;
+                if (part.delta) {
+                  if (!firstTokenAt) firstTokenAt = Date.now();
+                  streamed += part.delta;
+                  sentText += part.delta;
+                  send({ type: "delta", content: part.delta });
+                }
+                if (part.toolCalls && part.toolCalls.length > 0) {
+                  pendingToolCalls = true;
+                  accumulatedToolCalls.push(...part.toolCalls);
+                }
+                deltaCount += 1;
+                if (deltaCount % 25 === 0) {
+                  const row = await getMessageRow(conversationId, assistantMessageId, db).catch(() => undefined);
+                  if (row && row.status !== "streaming") {
+                    stopRequested = true;
+                    break;
+                  }
+                }
+              }
+              if (stopController.signal.aborted) break;
+              if (!stopRequested && !stopController.signal.aborted && !streamed.trim() && accumulatedToolCalls.length === 0) {
+                throw new ProviderError("unavailable", 502, PROVIDER_DOWN_MESSAGE, "empty completion");
+              }
+              fullText = priorContent ? `${priorContent}\n\n${streamed}` : streamed;
+
+              if (!pendingToolCalls || accumulatedToolCalls.length === 0) {
+                break;
+              }
+
+              // Execute tool calls
+              for (const toolCall of accumulatedToolCalls) {
+                if (toolCall.type !== "function") continue;
+                const functionName = toolCall.function.name;
+                const functionArgs = JSON.parse(toolCall.function.arguments);
+
+                // Send tool call started event
+                send({ type: "notice", notice: `Running ${functionName}...` });
+
+                const toolResult = await executeTool(
+                  functionName,
+                  functionArgs,
+                  {
+                    userId: user.id,
+                    conversationId,
+                    messageId: assistantMessageId,
+                    modelId: model.id,
+                    abortSignal: stopController.signal,
+                  }
+                );
+
+                // Add tool result to conversation
+                providerMessages.push({
+                  role: "tool",
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(toolResult),
+                  name: functionName,
+                });
+
+                // Send tool result to client
+                send({
+                  type: "notice",
+                  notice: toolResult.success
+                    ? `${functionName} completed`
+                    : `${functionName} failed: ${toolResult.error}`,
+                });
+              }
+            }
+            if (!stopRequested && !stopController.signal.aborted && !fullText.trim()) {
               throw new ProviderError("unavailable", 502, PROVIDER_DOWN_MESSAGE, "empty completion");
             }
-            fullText = priorContent ? `${priorContent}\n\n${streamed}` : streamed;
           } catch (error) {
             const providerError = error instanceof ProviderError ? error : undefined;
             console.error(

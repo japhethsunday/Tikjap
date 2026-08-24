@@ -4,6 +4,7 @@ import {
   PROVIDER_DOWN_MESSAGE,
   UpstreamDelta,
   UpstreamRequest,
+  ToolDefinition,
 } from "./types";
 
 /**
@@ -67,11 +68,25 @@ async function* parseSseStream(
       if (!payload || payload === "[DONE]") continue;
       try {
         const parsed = JSON.parse(payload) as {
-          choices?: Array<{ delta?: { content?: string | null }; finish_reason?: string | null }>;
+          choices?: Array<{
+            delta?: {
+              content?: string | null;
+              tool_calls?: Array<{
+                index: number;
+                id: string;
+                type: "function";
+                function: { name: string; arguments: string };
+              }>;
+            };
+            finish_reason?: string | null;
+          }>;
         };
         const choice = parsed.choices?.[0];
         const delta = choice?.delta?.content ?? "";
         if (delta) yield { delta };
+        if (choice?.delta?.tool_calls && choice.delta.tool_calls.length > 0) {
+          yield { toolCalls: choice.delta.tool_calls };
+        }
         if (choice?.finish_reason) yield { finishReason: choice.finish_reason };
       } catch {
         // Skip malformed keep-alive lines; never crash a stream on one bad frame.
@@ -99,6 +114,12 @@ export const nimProvider: AIProvider = {
       };
       if (request.thinking) {
         body.chat_template_kwargs = { enable_thinking: true };
+      }
+      if (request.tools && request.tools.length > 0) {
+        body.tools = request.tools;
+        if (request.toolChoice) {
+          body.tool_choice = request.toolChoice;
+        }
       }
       try {
         response = await fetch(`${BASE_URL}/chat/completions`, {
