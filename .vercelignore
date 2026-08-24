@@ -1,0 +1,6 @@
+# Agent tooling only — skills are markdown and scripts used by coding agents
+# working in this repo. They are never imported by the app, never bundled, and
+# never served, so they have no business in the deployment upload.
+.agents/
+.claude/
+skills-lock.json

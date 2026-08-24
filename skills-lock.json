@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "skills": {
+    "accelerated-computing-cudf": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/accelerated-computing-cudf/SKILL.md",
+      "computedHash": "d373532ba6e389d8cee27e37500c56cae0c413e15d9527bdaa412ee6be2778c5"
+    },
+    "aiq-deploy": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/aiq-deploy/SKILL.md",
+      "computedHash": "f18d4d7dcc639775f7f1ceffbca1941f9d098bb8382068a54119ed9cd5ed4c83"
+    },
+    "aiq-research": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/aiq-research/SKILL.md",
+      "computedHash": "fd2e99f928f13fc462d1eb9e22145804448c1695088dfdb1ce3d5e7c2493e918"
+    },
+    "cuopt-developer": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cuopt-developer/SKILL.md",
+      "computedHash": "5d4abbe69c1a134e004c48d20c4fdcdec73f4662be36b51ea0bd704ad1bbeba0"
+    },
+    "cuopt-install": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cuopt-install/SKILL.md",
+      "computedHash": "55bbacec9b826ec9d21c8f4727e02bc8649b9443864b470168712bbc6ffc6a01"
+    },
+    "earth2studio-create-datasource": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/earth2studio-create-datasource/SKILL.md",
+      "computedHash": "206358ce1e5d369fc4bae15febad3a9b0f03bcfd060c907f0ae335813ee31ea2"
+    },
+    "jetson-build-source": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/jetson-build-source/SKILL.md",
+      "computedHash": "156f9c757ac34e2282de8de8580f07792aa6def1671af4292418a53d087fed9d"
+    },
+    "nemo-rl-docs": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/nemo-rl-docs/SKILL.md",
+      "computedHash": "fffc3da66e32d251a916a24d7e0a911ec350ddb8e15d3e94c59cb336e8df121b"
+    },
+    "nemo-rl-session-memory": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/nemo-rl-session-memory/SKILL.md",
+      "computedHash": "227fc965ec35b69731af6e8a967de5d7a75d87d2327cffcb903f032c78ac4247"
+    },
+    "rag-blueprint": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/rag-blueprint/SKILL.md",
+      "computedHash": "5c057a857193fdd137a8f040cfb95cf033c74fbc27eb5346c5255a5b34e1459b"
+    },
+    "skill-card-generator": {
+      "source": "NVIDIA/skills",
+      "sourceType": "github",
+      "skillPath": "skills/skill-card-generator/SKILL.md",
+      "computedHash": "c877be756e2fb1a1d488ded7f437942416f4a77f78962e1d89a155b6d310a87f"
+    }
+  }
+}
