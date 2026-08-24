@@ -12,6 +12,7 @@ import {
   Menu,
   Play,
   Save,
+  Sparkles,
   Terminal,
   X,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import { Button, Spinner } from "@/components/ui";
 import { Dropdown } from "@/components/ui/overlays";
 import { FileExplorer } from "./file-explorer";
 import { DiffView } from "./diff-view";
+import { CodeChat } from "./code-chat";
 import { errorMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { CodeRunResult, ProjectFile } from "@/lib/types";
@@ -92,6 +94,7 @@ export function CodeWorkspace() {
   // Below `md` the explorer becomes a drawer — without it there is no way to
   // reach a file on a phone at all.
   const [filesOpen, setFilesOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [run, setRun] = useState<CodeRunResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -197,6 +200,13 @@ export function CodeWorkspace() {
     [deleteFile, closeTab, toast]
   );
 
+  const handleFilesChanged = useCallback(() => {
+    // The assistant just rewrote something. Any draft for an edited file is now
+    // based on stale content, so clear drafts rather than let the editor show
+    // one thing while the project holds another.
+    setDrafts({});
+  }, []);
+
   const execute = useCallback(async () => {
     if (!activeFile) return;
     setRunError(null);
@@ -295,6 +305,19 @@ export function CodeWorkspace() {
         </Dropdown>
 
         <div className="ml-auto flex items-center gap-1.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setChatOpen((open) => !open)}
+            aria-pressed={chatOpen}
+            // The label is hidden below `sm`, so without this the control is an
+            // unnamed icon button for anyone not using a pointer.
+            aria-label="Toggle coding assistant"
+            className="xl:hidden"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden sm:inline">Assistant</span>
+          </Button>
           <Button
             size="sm"
             variant="secondary"
@@ -517,6 +540,41 @@ export function CodeWorkspace() {
             </div>
           </div>
         </div>
+
+        {/* Docked beside the editor when there is room; an overlay otherwise,
+            so a narrow window is not split three ways. */}
+        <div className="hidden w-80 shrink-0 xl:block">
+          <CodeChat
+            projectId={projectId}
+            projectName={activeProject?.name}
+            onFilesChanged={handleFilesChanged}
+          />
+        </div>
+
+        {chatOpen ? (
+          <div className="fixed inset-0 z-50 xl:hidden">
+            <div
+              className="tk-fade-in absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+              onClick={() => setChatOpen(false)}
+              aria-hidden
+            />
+            <div className="absolute inset-y-0 right-0 flex w-[92%] max-w-96 flex-col">
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                aria-label="Close assistant"
+                className="absolute right-2 top-2 z-10 rounded-lg p-1.5 text-muted hover:bg-elevated hover:text-fg"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+              <CodeChat
+                projectId={projectId}
+                projectName={activeProject?.name}
+                onFilesChanged={handleFilesChanged}
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

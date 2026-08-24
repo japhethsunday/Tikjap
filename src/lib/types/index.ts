@@ -94,14 +94,10 @@ export interface UploadedFile {
   createdAt: string;
 }
 
-export type ToolPermission =
-  | "web_search"
-  | "file_analysis"
-  | "url_analysis"
-  | "data_analysis"
-  | "code_execution"
-  | "image_generation"
-  | "deep_research";
+// One definition, in src/lib/tools/types.ts. This used to be a second copy of
+// the same union, which meant adding a tool in one place produced an
+// "'x' is not assignable to type ToolPermission" error from the other.
+export type { ToolPermission } from "@/lib/tools/types";
 
 export interface UsageDay {
   date: string;
@@ -174,6 +170,8 @@ export interface ChatRequest {
   assistantId?: string;
   /** Tool ids enabled in the composer for this turn. */
   enabledTools?: string[];
+  /** Project this turn belongs to — set by the Code workspace. */
+  projectId?: string;
 }
 
 export interface Project {

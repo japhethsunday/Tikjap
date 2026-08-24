@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ALL_TOOLS, checkToolRateLimit, getServerTool, isToolAvailable, runTool } from "../index";
+import { ALL_TOOLS, PROJECT_TOOL_IDS, checkToolRateLimit, getServerTool, isToolAvailable, runTool } from "../index";
 import type { ToolRunContext } from "../types";
 
 function makeContext(overrides: Partial<ToolRunContext> = {}): ToolRunContext {
@@ -15,8 +15,9 @@ function makeContext(overrides: Partial<ToolRunContext> = {}): ToolRunContext {
 }
 
 describe("tool registry", () => {
-  it("registers all seven tools", () => {
-    expect(ALL_TOOLS.map((tool) => tool.id).sort()).toEqual([
+  it("registers the chat tools", () => {
+    const chatTools = ALL_TOOLS.filter((tool) => !tool.requiresProject).map((tool) => tool.id).sort();
+    expect(chatTools).toEqual([
       "code_execution",
       "data_analysis",
       "deep_research",
@@ -25,6 +26,20 @@ describe("tool registry", () => {
       "url_analysis",
       "web_search",
     ]);
+  });
+
+  it("registers the project tools separately, all requiring a project", () => {
+    const projectTools = ALL_TOOLS.filter((tool) => tool.requiresProject).map((tool) => tool.id).sort();
+    expect(projectTools).toEqual([
+      "code_delete_file",
+      "code_list_files",
+      "code_read_file",
+      "code_run_file",
+      "code_write_file",
+    ]);
+    // PROJECT_TOOL_IDS is what the orchestrator gates on, so the two must agree
+    // or a file tool could leak into an ordinary chat turn.
+    expect([...PROJECT_TOOL_IDS].sort()).toEqual(projectTools);
   });
 
   it("gives every tool a description and a parameter schema", () => {

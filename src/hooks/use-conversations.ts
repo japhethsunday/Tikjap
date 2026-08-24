@@ -39,7 +39,7 @@ export function useConversation(conversationId: string) {
 export function useCreateConversation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { title?: string; modelId?: string }) => api.conversations.create(input),
+    mutationFn: (input: { title?: string; modelId?: string; projectId?: string }) => api.conversations.create(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },

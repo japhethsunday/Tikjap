@@ -5,7 +5,13 @@ export type ToolPermission =
   | "data_analysis"
   | "code_execution"
   | "image_generation"
-  | "deep_research";
+  | "deep_research"
+  // Code workspace: only offered when a project is in context.
+  | "code_list_files"
+  | "code_read_file"
+  | "code_write_file"
+  | "code_delete_file"
+  | "code_run_file";
 
 export interface ToolDefinition<
   TInput = unknown,
@@ -93,4 +99,9 @@ export const TOOL_PERMISSIONS: Record<ToolPermission, { name: string; descriptio
   code_execution: { name: "Code Execution", description: "Run code in a secure sandbox" },
   image_generation: { name: "Image Generation", description: "Generate images from text prompts" },
   deep_research: { name: "Deep Research", description: "Conduct multi-step research investigations" },
+  code_list_files: { name: "List Project Files", description: "See the project's structure" },
+  code_read_file: { name: "Read Project File", description: "Read a file from the project" },
+  code_write_file: { name: "Write Project File", description: "Create or replace a project file" },
+  code_delete_file: { name: "Delete Project File", description: "Remove a file from the project" },
+  code_run_file: { name: "Run Project File", description: "Execute a project file in the sandbox" },
 };

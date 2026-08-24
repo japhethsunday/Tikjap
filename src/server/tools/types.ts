@@ -13,6 +13,12 @@ export interface ToolRunContext {
   conversationId: string;
   messageId: string;
   attachments: AttachmentRef[];
+  /**
+   * Set only when the turn originates in the Code workspace. The file tools
+   * are scoped to it, so a chat outside a project cannot reach project files
+   * at all — the tools are not even offered to the planner.
+   */
+  projectId?: string;
   signal: AbortSignal;
   onProgress: (progress: ToolProgressEvent) => void;
 }
@@ -33,6 +39,8 @@ export interface ToolParameterSchema {
 }
 
 export interface ServerToolDefinition {
+  /** Requires a project in context; hidden from ordinary chat turns. */
+  requiresProject?: boolean;
   /** Matches the ToolPermission id so UI toggles map 1:1 onto implementations. */
   id: ToolPermission;
   name: string;

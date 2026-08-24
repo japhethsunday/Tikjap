@@ -49,6 +49,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
             .filter((id) => getServerTool(id) !== undefined)
             .slice(0, 7) as ToolPermission[])
         : undefined,
+      // Ownership is re-checked server-side by every project tool, so a forged
+      // id here reaches nothing the caller does not already own.
+      projectId: typeof body.projectId === "string" ? body.projectId : undefined,
       signal: request.signal,
     });
     return new NextResponse(generation.stream, {

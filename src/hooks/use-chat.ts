@@ -41,6 +41,8 @@ export interface UseChatOptions {
   assistantId?: string;
   /** Tool ids currently switched on in the composer. */
   enabledTools?: string[];
+  /** Project context, when the turn comes from the Code workspace. */
+  projectId?: string;
 }
 
 interface StreamRequest {
@@ -76,6 +78,7 @@ export function useChat({
   streamingEnabled,
   assistantId,
   enabledTools,
+  projectId,
 }: UseChatOptions): UseChatResult {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<ChatMessage[]>([]);
@@ -189,6 +192,7 @@ export function useChat({
             removeFromMessageId: request.removeFromMessageId,
             assistantId,
             enabledTools: enabledTools?.length ? enabledTools : undefined,
+            projectId,
           },
           { signal: controller.signal }
         );
@@ -301,6 +305,7 @@ export function useChat({
       streamingEnabled,
       assistantId,
       enabledTools,
+      projectId,
       invalidate,
       showNotice,
       pending,

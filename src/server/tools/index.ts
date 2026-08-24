@@ -1,12 +1,18 @@
 import { rateLimit } from "../rate-limit";
-import { ALL_TOOLS } from "./definitions";
+import { ALL_TOOLS as CHAT_TOOLS } from "./definitions";
+import { CODE_TOOLS } from "./code-tools";
 import type { ServerToolDefinition, ToolRunContext, ToolRunResult } from "./types";
 import type { ToolPermission } from "@/lib/tools/types";
 
 export type { ServerToolDefinition, ToolRunContext, ToolRunResult, ToolProgressEvent } from "./types";
-export { ALL_TOOLS } from "./definitions";
+
+/** Every tool the server can run, chat and code alike. */
+export const ALL_TOOLS: ServerToolDefinition[] = [...CHAT_TOOLS, ...CODE_TOOLS];
 
 const BY_ID = new Map<string, ServerToolDefinition>(ALL_TOOLS.map((tool) => [tool.id, tool]));
+
+/** Tools usable only inside the Code workspace. */
+export const PROJECT_TOOL_IDS = CODE_TOOLS.map((tool) => tool.id);
 
 export function getServerTool(id: string): ServerToolDefinition | undefined {
   return BY_ID.get(id);
@@ -39,6 +45,12 @@ const TOOL_LIMITS: Record<ToolPermission, { limit: number; windowMs: number }> =
   code_execution: { limit: 20, windowMs: 60_000 },
   image_generation: { limit: 5, windowMs: 60_000 },
   deep_research: { limit: 3, windowMs: 300_000 },
+  // File reads are cheap; writes and runs are the ones worth bounding.
+  code_list_files: { limit: 60, windowMs: 60_000 },
+  code_read_file: { limit: 60, windowMs: 60_000 },
+  code_write_file: { limit: 40, windowMs: 60_000 },
+  code_delete_file: { limit: 20, windowMs: 60_000 },
+  code_run_file: { limit: 30, windowMs: 60_000 },
 };
 
 export function checkToolRateLimit(userId: string, toolId: ToolPermission) {

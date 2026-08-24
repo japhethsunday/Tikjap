@@ -94,6 +94,8 @@ export interface GenerationParams {
   assistantId?: string;
   /** Tool ids the user switched on in the composer for this turn. */
   enabledTools?: ToolPermission[];
+  /** Set for Code workspace turns; unlocks the project file tools. */
+  projectId?: string;
   signal?: AbortSignal;
 }
 
@@ -297,7 +299,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           // ---- Tool orchestration -------------------------------------
           // User → Tikjap API → orchestrator → tool → tool result → AI answer.
           // Runs before the answer stream so the model sees real observations.
-          if ((params.enabledTools?.length ?? 0) > 0 && model.capabilities.toolUse) {
+          if (((params.enabledTools?.length ?? 0) > 0 || params.projectId) && model.capabilities.toolUse) {
             const emitTool = (event: NonNullable<StreamChunk["tool"]>) => send({ type: "tool", tool: event });
             try {
               const orchestration = await orchestrate({
@@ -311,6 +313,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
                 ),
                 enabledTools: params.enabledTools ?? [],
                 attachments: attachmentRefs,
+                projectId: params.projectId,
                 upstreamModel: upstream.model,
                 signal: stopController.signal,
                 onToolStart: (call) =>

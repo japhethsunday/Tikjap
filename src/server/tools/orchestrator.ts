@@ -3,6 +3,7 @@ import type { ChatMessageInput, ToolDefinition } from "../providers/types";
 import { ProviderError } from "../providers/types";
 import {
   MAX_TOOL_CALLS_PER_TURN,
+  PROJECT_TOOL_IDS,
   getServerTool,
   isToolAvailable,
   runTool,
@@ -55,6 +56,8 @@ export interface OrchestrateParams {
   history: ChatMessageInput[];
   enabledTools: ToolPermission[];
   attachments: AttachmentRef[];
+  /** Set for Code workspace turns; unlocks the project file tools. */
+  projectId?: string;
   upstreamModel: string;
   signal: AbortSignal;
   onToolStart: (call: { id: string; toolId: string; input: Record<string, unknown> }) => void;
@@ -77,12 +80,18 @@ function toToolDefinition(id: ToolPermission): ToolDefinition | null {
 
 export async function orchestrate(params: OrchestrateParams): Promise<OrchestrationResult> {
   const empty: OrchestrationResult = { calls: [], observations: [] };
-  if (params.enabledTools.length === 0) return empty;
+  if (params.enabledTools.length === 0 && !params.projectId) return empty;
 
-  // Only tools the user turned on AND this deployment can actually run.
-  const enabled = params.enabledTools.filter((id) => isToolAvailable(id));
+  // Project tools are implicit in the Code workspace: the user opened a
+  // project, which is the consent. They are never available elsewhere.
+  const requested = params.projectId
+    ? [...new Set([...params.enabledTools, ...PROJECT_TOOL_IDS])]
+    : params.enabledTools.filter((id) => !PROJECT_TOOL_IDS.includes(id));
+
+  // Only tools this deployment can actually run.
+  const enabled = requested.filter((id) => isToolAvailable(id));
   if (enabled.length === 0) {
-    const names = params.enabledTools
+    const names = requested
       .map((id) => getServerTool(id)?.name ?? id)
       .join(", ");
     return {
@@ -93,6 +102,10 @@ export async function orchestrate(params: OrchestrateParams): Promise<Orchestrat
 
   const tools = enabled.map(toToolDefinition).filter((tool): tool is ToolDefinition => tool !== null);
   if (tools.length === 0) return empty;
+
+  // A coding turn is a sequence — list, read, write, run — so it needs more
+  // room than a single retrieval call.
+  const maxCalls = params.projectId ? 8 : MAX_TOOL_CALLS_PER_TURN;
 
   const attachmentNote = params.attachments.length
     ? `\nFiles attached to this message: ${params.attachments
@@ -107,7 +120,10 @@ export async function orchestrate(params: OrchestrateParams): Promise<Orchestrat
         "You are Tikjap's tool planner. Decide which tools, if any, are needed to answer the user's latest message.",
         "Call a tool only when it genuinely improves the answer. For general knowledge, opinions, writing tasks or chit-chat, call nothing.",
         "Prefer one well-chosen tool. Use deep_research only for open-ended questions that a single search cannot settle.",
-        `You may make at most ${MAX_TOOL_CALLS_PER_TURN} tool calls.${attachmentNote}`,
+        params.projectId
+          ? "You are in the Code workspace with a project open. Understand before you change: list the files, read the ones you will touch, then write complete file contents — never a fragment or a patch, since a write replaces the whole file. Run a JavaScript file afterwards to verify. Do not touch files the request does not concern."
+          : "",
+        `You may make at most ${maxCalls} tool calls.${attachmentNote}`,
       ].join(" "),
     },
     ...params.history.slice(-6),
@@ -142,17 +158,17 @@ export async function orchestrate(params: OrchestrateParams): Promise<Orchestrat
     };
   }
 
-  const requested = plan.toolCalls
+  const wanted = plan.toolCalls
     // Drop hallucinated tool names and anything the user did not enable.
     .filter((call) => enabled.includes(call.name as ToolPermission))
-    .slice(0, MAX_TOOL_CALLS_PER_TURN);
+    .slice(0, maxCalls);
 
-  if (requested.length === 0) return empty;
+  if (wanted.length === 0) return empty;
 
   const calls: ToolCallRecord[] = [];
   const observations: ChatMessageInput[] = [];
 
-  for (const call of requested) {
+  for (const call of wanted) {
     if (params.signal.aborted) break;
 
     const startedAt = Date.now();
@@ -163,6 +179,7 @@ export async function orchestrate(params: OrchestrateParams): Promise<Orchestrat
       conversationId: params.conversationId,
       messageId: params.messageId,
       attachments: params.attachments,
+      projectId: params.projectId,
       signal: params.signal,
       onProgress: (progress) => params.onToolProgress(call.id, progress),
     };
