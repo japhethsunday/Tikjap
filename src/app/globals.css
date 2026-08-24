@@ -262,9 +262,43 @@ body {
   animation: tk-fade-in 0.18s ease-out;
 }
 
+/* Menus animate away from their trigger: a menu opening upward should rise,
+   one opening downward should drop. Sharing a single downward animation makes
+   an upward menu look like it slid the wrong way. */
+@keyframes tk-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes tk-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.tk-slide-up {
+  animation: tk-slide-up 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: bottom center;
+}
+.tk-slide-down {
+  animation: tk-slide-down 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top center;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tk-cursor,
   .tk-fade-in,
+  .tk-slide-up,
+  .tk-slide-down,
   * {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;

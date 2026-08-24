@@ -41,7 +41,10 @@ export function Badge({
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("rounded-xl border border-line bg-elevated shadow-sm", className)}
+      className={cn(
+        "rounded-2xl border border-line bg-elevated shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)]",
+        className
+      )}
       {...props}
     />
   );

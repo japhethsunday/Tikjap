@@ -272,18 +272,25 @@ export function Composer({
 
           <div className="flex shrink-0 items-center gap-1.5">
             <Dropdown
+              placement="top"
+              align="end"
+              className="w-72"
               trigger={({ ref, "aria-expanded": expanded, toggle }) => (
                 <button
                   ref={ref}
                   type="button"
                   aria-expanded={expanded}
                   aria-haspopup="listbox"
+                  // The name is visually hidden below `sm`, so without this the
+                  // control is an unlabelled icon button for screen readers and
+                  // for anyone driving the app by voice.
+                  aria-label={`Model: ${selectedModel?.name ?? "select a model"}`}
                   onClick={toggle}
                   disabled={disabled || isStreaming}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-sm font-medium text-fg transition-colors hover:bg-surface disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-sm font-medium text-fg transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Server className="h-3.5 w-3.5 text-muted" aria-hidden />
-                  <span className="hidden sm:inline">{selectedModel?.name ?? "Model"}</span>
+                  <span className="hidden max-w-28 truncate sm:inline">{selectedModel?.name ?? "Model"}</span>
                   <ChevronsUpDown className="h-3.5 w-3.5 text-muted" aria-hidden />
                 </button>
               )}
@@ -293,7 +300,10 @@ export function Composer({
                   <p className="px-3 pb-1.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted">
                     Choose a model
                   </p>
-                  <div className="max-h-60 overflow-y-auto">
+                  {/* The Dropdown already caps itself against the viewport, so
+                      this only needs a generous ceiling — a hard max-h-60 hid
+                      the last model even when there was room on screen. */}
+                  <div className="max-h-[min(60vh,24rem)] overflow-y-auto">
                     {models.map((model) => (
                       <button
                         key={model.id}

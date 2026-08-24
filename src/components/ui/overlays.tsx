@@ -13,16 +13,57 @@ interface DropdownProps {
   trigger: (props: { open: boolean; toggle: () => void; ref: React.RefObject<HTMLButtonElement | null>; "aria-expanded": boolean; "aria-haspopup": true }) => ReactNode;
   children: (props: { close: () => void }) => ReactNode;
   align?: "start" | "end";
+  /**
+   * Preferred side to open on. "top" is what a composer control wants — a menu
+   * dropping downward out of a bar pinned to the bottom of the screen is
+   * immediately clipped. Either preference flips automatically when the chosen
+   * side has no room, so the menu is always inside the viewport.
+   */
+  placement?: "bottom" | "top";
   className?: string;
 }
 
-export function Dropdown({ trigger, children, align = "end", className }: DropdownProps) {
+export function Dropdown({ trigger, children, align = "end", placement = "bottom", className }: DropdownProps) {
   const [open, setOpen] = useState(false);
+  const [side, setSide] = useState<"bottom" | "top">(placement);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
   const close = useCallback(() => setOpen(false), []);
+
+  // Decide the side from real measurements each time the menu opens, and again
+  // on resize/scroll, so a menu near an edge flips rather than being cut off.
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => {
+      const trigger = buttonRef.current;
+      const menu = menuRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      // Fall back to a sensible estimate before the menu has been measured.
+      const menuHeight = menu?.offsetHeight || 280;
+      const gap = 12;
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      if (placement === "top") {
+        setSide(spaceAbove >= menuHeight || spaceAbove >= spaceBelow ? "top" : "bottom");
+      } else {
+        setSide(spaceBelow >= menuHeight || spaceBelow >= spaceAbove ? "bottom" : "top");
+      }
+    };
+    reposition();
+    // A second pass once the menu has rendered gives us its true height.
+    const raf = requestAnimationFrame(reposition);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open, placement]);
 
   useEffect(() => {
     if (!open) return;
@@ -54,10 +95,15 @@ export function Dropdown({ trigger, children, align = "end", className }: Dropdo
       })}
       {open ? (
         <div
+          ref={menuRef}
           id={menuId}
           role="menu"
           className={cn(
-            "tk-fade-in absolute z-50 mt-1.5 min-w-48 rounded-xl border border-line bg-elevated p-1 shadow-xl",
+            "absolute z-[70] min-w-48 overflow-hidden rounded-xl border border-line bg-elevated p-1 shadow-2xl",
+            // Cap the height against the viewport and scroll internally, so a
+            // long list can never run off the top or bottom of the screen.
+            "max-h-[min(70vh,28rem)] overflow-y-auto",
+            side === "top" ? "bottom-full mb-2 tk-slide-up" : "top-full mt-2 tk-slide-down",
             align === "end" ? "right-0" : "left-0",
             className
           )}

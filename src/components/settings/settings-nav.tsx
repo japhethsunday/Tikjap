@@ -18,7 +18,10 @@ const SECTIONS = [
 export function SettingsNav() {
   const pathname = usePathname();
   return (
-    <nav aria-label="Settings" className="flex gap-1 overflow-x-auto border-b border-line pb-1">
+    <nav
+      aria-label="Settings"
+      className="tk-scroll-x -mx-1 flex gap-1 border-b border-line px-1 pb-2 lg:mx-0 lg:flex-col lg:overflow-visible lg:border-0 lg:px-0 lg:pb-0 lg:[mask-image:none]"
+    >
       {SECTIONS.map((section) => {
         const active = pathname === section.href;
         return (
@@ -27,11 +30,13 @@ export function SettingsNav() {
             href={section.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "inline-flex shrink-0 items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors",
-              active ? "bg-surface text-fg ring-1 ring-line" : "text-muted hover:bg-surface/60 hover:text-fg"
+              "inline-flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors lg:w-full",
+              active
+                ? "bg-surface text-fg ring-1 ring-line lg:ring-0"
+                : "text-muted hover:bg-surface/60 hover:text-fg"
             )}
           >
-            {section.icon}
+            <span className={cn("shrink-0", active ? "text-accent" : "text-muted")}>{section.icon}</span>
             {section.label}
           </Link>
         );

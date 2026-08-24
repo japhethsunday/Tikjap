@@ -34,7 +34,6 @@ import { useAuth } from "@/components/providers/auth";
 import { useToast } from "@/components/providers/toast";
 import { api } from "@/lib/api";
 import type { ComparisonResult } from "@/lib/types";
-import { ModelSelect } from "./model-select";
 import { Composer } from "./composer";
 import { MessageItem } from "./message";
 import { ChatEmptyState } from "./empty-state";
@@ -172,16 +171,6 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="truncate text-sm font-medium text-fg min-w-0">{conversation?.conversation?.title ?? "New chat"}</p>
-            <ModelSelect
-              models={models}
-              value={effectiveModelId}
-              onChange={(id) => {
-                modelOverrideRef.current = true;
-                setModelId(id);
-              }}
-              loading={modelsData === undefined}
-              compact={false}
-            />
             {chat.isStreaming && streamingModel ? (
               <span className="hidden shrink-0 items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent sm:inline-flex" aria-live="polite">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" aria-hidden />

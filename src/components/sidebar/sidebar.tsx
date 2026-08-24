@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  ChevronsUpDown,
   CheckSquare,
   Folder,
   FolderOpen,
@@ -172,25 +173,27 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     <>
       {open ? (
         <div
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          className="tk-fade-in fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] lg:hidden"
           onClick={onClose}
           aria-hidden
         />
       ) : null}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 shrink-0 flex-col border-r border-line bg-surface transition-transform lg:static lg:translate-x-0 print:hidden",
-          open ? "translate-x-0" : "-translate-x-full"
+          "fixed inset-y-0 left-0 z-50 flex w-[280px] shrink-0 flex-col border-r border-line bg-surface print:hidden",
+          "transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] lg:static lg:translate-x-0",
+          // The drawer casts a shadow only while floating over the content.
+          open ? "translate-x-0 shadow-2xl lg:shadow-none" : "-translate-x-full"
         )}
         aria-label="Conversations"
       >
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-line px-3">
+        <div className="flex h-16 shrink-0 items-center justify-between px-4">
           <button
             type="button"
             onClick={() => go("/chat")}
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-semibold text-fg transition-colors hover:bg-surface"
+            className="-ml-1 flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[15px] font-semibold tracking-tight text-fg transition-colors hover:bg-elevated/60"
           >
-            <LogoMark size={24} />
+            <LogoMark size={26} />
             Tikjap<span className="font-normal text-muted"> AI</span>
           </button>
           <button
@@ -203,11 +206,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           </button>
         </div>
 
-        <div className="space-y-2 p-3">
+        <div className="space-y-2.5 px-3 pb-3">
           <button
             type="button"
             onClick={() => go("/chat")}
-            className="flex w-full items-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-sm font-medium text-primary-fg transition-opacity hover:opacity-90"
+            className="group flex w-full items-center gap-2.5 rounded-xl bg-primary px-3.5 py-2.5 text-sm font-semibold text-primary-fg shadow-sm transition-all hover:shadow-md hover:brightness-110 active:scale-[0.99]"
           >
             <MessageSquarePlus className="h-4 w-4" aria-hidden />
             New chat
@@ -223,13 +226,13 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               }}
               placeholder="Search titles and messages"
               aria-label="Search conversations and messages"
-              className="w-full rounded-lg border border-line bg-elevated py-2 pl-9 pr-3 text-sm text-fg placeholder:text-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full rounded-xl border border-line bg-canvas py-2 pl-9 pr-3 text-sm text-fg transition-colors placeholder:text-muted/60 hover:border-line focus:border-accent/50 focus:bg-elevated focus:outline-none focus:ring-2 focus:ring-accent/25"
             />
           </div>
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          <div className="mb-2 flex gap-1" role="tablist" aria-label="Conversation filters">
+          <div className="mb-3 flex items-center gap-1 rounded-xl bg-canvas p-1" role="tablist" aria-label="Conversation filters">
             {VIEWS.map((entry) => (
               <button
                 key={entry.id}
@@ -238,8 +241,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 aria-selected={view === entry.id}
                 onClick={() => setView(entry.id)}
                 className={cn(
-                  "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
-                  view === entry.id ? "bg-elevated text-fg ring-1 ring-line" : "text-muted hover:bg-elevated/60 hover:text-fg"
+                  "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-all",
+                  view === entry.id
+                    ? "bg-elevated text-fg shadow-sm ring-1 ring-line"
+                    : "text-muted hover:text-fg"
                 )}
               >
                 {entry.label}
@@ -255,8 +260,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 setSelectedIds(new Set());
               }}
               className={cn(
-                "rounded-lg px-2 py-1.5 text-xs font-medium transition-colors",
-                bulkMode ? "bg-elevated text-fg ring-1 ring-line" : "text-muted hover:bg-elevated/60 hover:text-fg"
+                "rounded-lg px-2 py-1.5 text-xs font-medium transition-all",
+                bulkMode ? "bg-elevated text-fg shadow-sm ring-1 ring-line" : "text-muted hover:text-fg"
               )}
             >
               <CheckSquare className="h-3.5 w-3.5" aria-hidden />
@@ -371,7 +376,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           ) : (
             grouped.map(([label, items]) => (
               <section key={label} className="mb-3">
-                <h3 className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</h3>
+                <h3 className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/80">{label}</h3>
                 <ul className="space-y-0.5">
                   {items.map((conversation) => {
                     const active = conversation.id === activeId;
@@ -385,18 +390,22 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                           }}
                           aria-current={active ? "page" : undefined}
                           className={cn(
-                            "block w-full rounded-lg px-3 py-2 text-left transition-colors",
-                            active ? "bg-elevated shadow-sm ring-1 ring-line" : "hover:bg-elevated/60"
+                            "relative block w-full rounded-lg px-3 py-2 text-left transition-colors",
+                            // An accent rail marks the active thread without
+                            // shifting the row's geometry on selection.
+                            active
+                              ? "bg-elevated before:absolute before:left-0 before:top-1/2 before:h-5 before:w-0.5 before:-translate-y-1/2 before:rounded-r-full before:bg-accent"
+                              : "hover:bg-elevated/70"
                           )}
                         >
-                          <p className="flex items-center gap-1.5 truncate text-sm font-medium text-fg">
+                          <p className={cn("flex items-center gap-1.5 truncate text-[13px]", active ? "font-semibold text-fg" : "font-medium text-fg/90")}>
                             {conversation.pinned ? <Pin className="h-3 w-3 shrink-0 text-accent" aria-hidden /> : null}
                             {conversation.color && COLOR_DOT[conversation.color] ? (
                               <span className={cn("h-2 w-2 shrink-0 rounded-full", COLOR_DOT[conversation.color])} aria-hidden />
                             ) : null}
                             <span className="truncate">{conversation.title}</span>
                           </p>
-                          <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-muted">
+                          <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-muted/80">
                             <span className="truncate">
                               {conversation.messageCount} message{conversation.messageCount === 1 ? "" : "s"} • {timeAgo(conversation.updatedAt)}
                             </span>
@@ -439,7 +448,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           ) : null}
         </nav>
 
-        <div className="border-t border-line p-3">
+        <div className="mt-auto border-t border-line p-2.5">
           <Dropdown
             align="start"
             trigger={({ ref, toggle, "aria-expanded": expanded }) => (
@@ -449,16 +458,18 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 aria-expanded={expanded}
                 aria-label="Open account menu"
                 onClick={toggle}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-elevated/60"
+                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-elevated"
               >
                 <Avatar name={user?.name ?? "?"} src={user?.avatarUrl} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-fg">{user?.name}</span>
-                  <span className="block truncate text-xs text-muted">{user?.email}</span>
+                  <span className="block truncate text-[13px] font-semibold text-fg">{user?.name}</span>
+                  <span className="block truncate text-[11px] text-muted/80">{user?.email}</span>
                 </span>
+                <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
               </button>
             )}
-            className="bottom-full top-auto mb-1.5 left-0 right-auto min-w-56"
+            placement="top"
+            className="min-w-56"
           >
             {({ close }) => (
               <>
