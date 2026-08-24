@@ -265,36 +265,38 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          <div className="mb-3 flex items-center gap-1 rounded-xl bg-canvas p-1" role="tablist" aria-label="Conversation filters">
-            {VIEWS.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                role="tab"
-                aria-selected={view === entry.id}
-                onClick={() => setView(entry.id)}
-                className={cn(
-                  "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-all",
-                  view === entry.id
-                    ? "bg-elevated text-fg shadow-sm ring-1 ring-line"
-                    : "text-muted hover:text-fg"
-                )}
-              >
-                {entry.label}
-              </button>
-            ))}
+          {/* Filters read as a section header rather than a segmented control:
+              three equal-weight tabs plus a bulk toggle occupied a full row for
+              a choice most people never change. */}
+          <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
+            <div className="flex items-center gap-3" role="tablist" aria-label="Conversation filters">
+              {VIEWS.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === entry.id}
+                  onClick={() => setView(entry.id)}
+                  className={cn(
+                    "text-[11px] font-semibold uppercase tracking-wider transition-colors",
+                    view === entry.id ? "text-fg" : "text-muted hover:text-fg"
+                  )}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
-              role="tab"
-              aria-selected={bulkMode}
+              aria-pressed={bulkMode}
               aria-label="Toggle bulk selection"
               onClick={() => {
                 setBulkMode((current) => !current);
                 setSelectedIds(new Set());
               }}
               className={cn(
-                "rounded-lg px-2 py-1.5 text-xs font-medium transition-all",
-                bulkMode ? "bg-elevated text-fg shadow-sm ring-1 ring-line" : "text-muted hover:text-fg"
+                "rounded-md p-1 transition-colors",
+                bulkMode ? "bg-elevated text-fg ring-1 ring-line" : "text-muted hover:text-fg"
               )}
             >
               <CheckSquare className="h-3.5 w-3.5" aria-hidden />

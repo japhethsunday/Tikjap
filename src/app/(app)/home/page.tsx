@@ -1,46 +1,44 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  Clock,
+  ArrowUp,
   Code2,
   Database,
   FileText,
   FolderOpen,
   Globe,
-  MessageSquarePlus,
   Paperclip,
   PenLine,
-  Search,
-  Sparkles,
   Zap,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth";
 import { useConversations, useCreateConversation } from "@/hooks/use-conversations";
 import { useFiles, useProjects, useSavedPrompts, useStorageUsage } from "@/hooks/use-platform";
 import { useModels } from "@/hooks/use-models";
-import { Card, Skeleton } from "@/components/ui";
+import { Skeleton } from "@/components/ui";
 import { cn, formatBytes, timeAgo } from "@/lib/utils";
 import type { ToolPermission } from "@/lib/types";
 
 /**
  * The workspace home.
  *
- * Everything on this page is backed by an endpoint that already exists —
- * conversations, projects, files, saved prompts and storage all come from live
- * queries. Nothing is rendered speculatively: a section that has no data shows
- * an empty state that offers the action which would create some, rather than
- * placeholder rows implying features that do not work.
+ * The primary element is a composer, not a search box: the job of this screen
+ * is to start work. Search lives in the sidebar, which owns the conversation
+ * list — having it in both places made the two compete for the same intent.
+ *
+ * Everything rendered is backed by a live query. Sections with no data are
+ * omitted entirely rather than showing a placeholder that describes what would
+ * be there, and a quick action whose tool the deployment cannot run is hidden
+ * rather than shown greyed out. An empty account therefore sees a composer and
+ * nothing else, which is the honest state of it.
  */
 
-/** A quick action seeds a new conversation with a starter prompt and, where
- *  relevant, pre-enables the tool that does the actual work. */
 interface QuickAction {
   id: string;
   label: string;
-  hint: string;
   icon: React.ReactNode;
   prompt: string;
   tool?: ToolPermission;
@@ -48,48 +46,36 @@ interface QuickAction {
 
 const QUICK_ACTIONS: QuickAction[] = [
   {
-    id: "ask",
-    label: "Ask anything",
-    hint: "Start a conversation",
-    icon: <Sparkles className="h-4 w-4" aria-hidden />,
-    prompt: "",
-  },
-  {
     id: "research",
     label: "Research",
-    hint: "Search and read sources",
-    icon: <Globe className="h-4 w-4" aria-hidden />,
+    icon: <Globe className="h-3.5 w-3.5" aria-hidden />,
     prompt: "Research this topic and give me a sourced summary: ",
     tool: "deep_research",
   },
   {
     id: "analyze",
     label: "Analyze data",
-    hint: "Statistics from a file",
-    icon: <Database className="h-4 w-4" aria-hidden />,
+    icon: <Database className="h-3.5 w-3.5" aria-hidden />,
     prompt: "Attach a CSV or JSON file and I will profile it — types, distributions and correlations.",
     tool: "data_analysis",
   },
   {
     id: "code",
     label: "Code",
-    hint: "Write and run code",
-    icon: <Code2 className="h-4 w-4" aria-hidden />,
+    icon: <Code2 className="h-3.5 w-3.5" aria-hidden />,
     prompt: "Help me write and verify some code. Here is what I need: ",
     tool: "code_execution",
   },
   {
     id: "write",
     label: "Write",
-    hint: "Draft and edit",
-    icon: <PenLine className="h-4 w-4" aria-hidden />,
+    icon: <PenLine className="h-3.5 w-3.5" aria-hidden />,
     prompt: "Help me write ",
   },
   {
     id: "files",
     label: "Upload files",
-    hint: "Ask about a document",
-    icon: <Paperclip className="h-4 w-4" aria-hidden />,
+    icon: <Paperclip className="h-3.5 w-3.5" aria-hidden />,
     prompt: "",
     tool: "file_analysis",
   },
@@ -105,8 +91,8 @@ function SectionHeader({
   onAction?: () => void;
 }) {
   return (
-    <div className="mb-3 flex items-baseline justify-between gap-3">
-      <h2 className="text-sm font-semibold tracking-tight text-fg">{title}</h2>
+    <div className="mb-2.5 flex items-baseline justify-between gap-3">
+      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted">{title}</h2>
       {action && onAction ? (
         <button
           type="button"
@@ -121,24 +107,16 @@ function SectionHeader({
   );
 }
 
-function EmptyState({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-line px-4 py-8 text-center">
-      <span className="text-muted/60">{icon}</span>
-      <p className="text-xs text-muted">{children}</p>
-    </div>
-  );
-}
-
 export default function HomePage() {
   const router = useRouter();
   const { user } = useAuth();
-  const [query, setQuery] = useState("");
+  const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const createConversation = useCreateConversation();
   const { conversations: allConversations, isLoading: loadingConversations } = useConversations();
   const { data: projectsData, isLoading: loadingProjects } = useProjects();
-  const { data: filesData, isLoading: loadingFiles } = useFiles();
+  const { data: filesData } = useFiles();
   const { data: promptsData } = useSavedPrompts();
   const { data: storage } = useStorageUsage();
   const { data: modelsData } = useModels();
@@ -149,26 +127,26 @@ export default function HomePage() {
   const files = filesData?.files ?? [];
   const prompts = promptsData?.prompts ?? [];
 
-  // Tools the deployment can actually run — a quick action whose tool is
-  // unavailable is dimmed rather than hidden, so the capability is discoverable
-  // but never silently does nothing.
-  const unavailableTools = useMemo(() => {
-    const set = new Set<string>();
+  // Tools this deployment can actually run. An action whose tool is missing is
+  // dropped from the list — offering a button that cannot work is worse than
+  // not offering it, and the chat tool menu still explains what is unavailable.
+  const actions = useMemo(() => {
+    const unavailable = new Set<string>();
     for (const entry of modelsData?.tools ?? []) {
-      if (!entry.available) set.add(entry.id);
+      if (!entry.available) unavailable.add(entry.id);
     }
-    return set;
+    return QUICK_ACTIONS.filter((action) => !action.tool || !unavailable.has(action.tool));
   }, [modelsData]);
 
   const firstName = (user?.name ?? "").trim().split(/\s+/)[0];
   const greeting = firstName ? `Welcome back, ${firstName}` : "Welcome back";
 
-  const startTask = async (action: QuickAction) => {
+  const start = async (prompt: string, tool?: ToolPermission) => {
     try {
       const { conversation } = await createConversation.mutateAsync({});
       const params = new URLSearchParams();
-      if (action.prompt) params.set("prompt", action.prompt);
-      if (action.tool) params.set("tool", action.tool);
+      if (prompt) params.set("prompt", prompt);
+      if (tool) params.set("tool", tool);
       const qs = params.toString();
       router.push(`/chat/${conversation.id}${qs ? `?${qs}` : ""}`);
     } catch {
@@ -178,101 +156,114 @@ export default function HomePage() {
     }
   };
 
-  const submitSearch = (event: React.FormEvent) => {
+  const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    const term = query.trim();
-    // The sidebar already owns conversation search and reads ?q=.
-    router.push(term ? `/chat?q=${encodeURIComponent(term)}` : "/chat");
+    void start(draft.trim());
   };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter sends, Shift+Enter breaks the line — the same contract as the chat
+    // composer, so the gesture learned here keeps working there.
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void start(draft.trim());
+    }
+  };
+
+  const busy = createConversation.isPending;
+  const hasAside = projects.length > 0 || files.length > 0 || prompts.length > 0;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:py-12">
-        <header className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">{greeting}</h1>
-          <p className="mt-1.5 text-sm text-muted">What would you like to work on?</p>
+      <div className="mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 lg:py-14">
+        <header className="mb-6">
+          <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-[28px]">{greeting}</h1>
         </header>
 
-        {/* Start a task without navigating anywhere first. */}
-        <div className="mb-8 space-y-3">
-          <form onSubmit={submitSearch} className="relative">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search your conversations…"
-              aria-label="Search conversations"
-              className="w-full rounded-2xl border border-line bg-elevated py-3.5 pl-11 pr-4 text-sm text-fg shadow-sm transition-colors placeholder:text-muted/60 focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/25"
+        {/* The primary action: start work, without navigating first. */}
+        <div className="mb-10">
+          <form
+            onSubmit={submit}
+            className="rounded-2xl border border-line bg-elevated shadow-sm transition-colors focus-within:border-accent/50 focus-within:ring-2 focus-within:ring-accent/20"
+          >
+            <label htmlFor="home-composer" className="sr-only">
+              What would you like to work on?
+            </label>
+            <textarea
+              id="home-composer"
+              ref={textareaRef}
+              rows={2}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="What would you like to work on?"
+              className="w-full resize-none bg-transparent px-4 pt-3.5 text-sm leading-relaxed text-fg placeholder:text-muted/60 focus:outline-none"
             />
-          </form>
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <button
-              type="button"
-              onClick={() => void startTask(QUICK_ACTIONS[0])}
-              disabled={createConversation.isPending}
-              className="col-span-2 flex items-center gap-2.5 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-fg shadow-sm transition-all hover:brightness-110 active:scale-[0.99] disabled:opacity-60 sm:col-span-1"
-            >
-              <MessageSquarePlus className="h-4 w-4" aria-hidden />
-              New chat
-            </button>
-            {QUICK_ACTIONS.slice(1).map((action) => {
-              const blocked = action.tool ? unavailableTools.has(action.tool) : false;
-              return (
-                <button
-                  key={action.id}
-                  type="button"
-                  onClick={() => void startTask(action)}
-                  disabled={blocked || createConversation.isPending}
-                  title={blocked ? `${action.label} is not configured on this deployment` : action.hint}
-                  className={cn(
-                    "group flex flex-col items-start gap-1 rounded-xl border border-line bg-elevated px-3.5 py-3 text-left transition-all",
-                    blocked
-                      ? "cursor-not-allowed opacity-45"
-                      : "hover:border-accent/40 hover:bg-surface active:scale-[0.99]"
-                  )}
-                >
-                  <span className="text-accent">{action.icon}</span>
-                  <span className="text-[13px] font-medium text-fg">{action.label}</span>
-                  <span className="text-[11px] text-muted">{blocked ? "Not configured" : action.hint}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-          {/* ---------------- Continue previous work ---------------- */}
-          <section>
-            <SectionHeader title="Continue where you left off" action="All chats" onAction={() => router.push("/chat")} />
-            {loadingConversations ? (
-              <div className="space-y-2">
-                {[0, 1, 2].map((index) => (
-                  <Skeleton key={index} className="h-16 w-full rounded-xl" />
+            <div className="flex items-center justify-between gap-3 px-3 pb-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {actions.map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={() => void start(action.prompt, action.tool)}
+                    disabled={busy}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1",
+                      "text-[12px] font-medium text-muted transition-colors",
+                      "hover:border-accent/40 hover:bg-surface hover:text-fg disabled:opacity-50"
+                    )}
+                  >
+                    <span className="text-accent">{action.icon}</span>
+                    {action.label}
+                  </button>
                 ))}
               </div>
+              <button
+                type="submit"
+                disabled={busy}
+                aria-label="Start"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-fg shadow-sm transition-all hover:brightness-110 active:scale-95 disabled:opacity-50"
+              >
+                <ArrowUp className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div className={cn("grid gap-8", hasAside && "lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]")}>
+          {/* ---------------- Continue previous work ---------------- */}
+          <section>
+            <SectionHeader
+              title="Recent"
+              action={conversations.length > 0 ? "All chats" : undefined}
+              onAction={() => router.push("/chat")}
+            />
+            {loadingConversations ? (
+              <Skeleton className="h-40 w-full rounded-xl" />
             ) : conversations.length === 0 ? (
-              <EmptyState icon={<MessageSquarePlus className="h-5 w-5" aria-hidden />}>
-                No conversations yet — start one above.
-              </EmptyState>
+              <p className="text-sm text-muted">Your conversations will appear here.</p>
             ) : (
-              <ul className="space-y-2">
+              // One bordered container with dividers rather than a stack of
+              // floating cards: the same rows at a fraction of the visual noise.
+              <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-elevated">
                 {conversations.map((conversation) => (
                   <li key={conversation.id}>
                     <button
                       type="button"
                       onClick={() => router.push(`/chat/${conversation.id}`)}
-                      className="flex w-full items-center gap-3 rounded-xl border border-line bg-elevated px-4 py-3 text-left transition-all hover:border-accent/40 hover:bg-surface"
+                      className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface"
                     >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-fg">{conversation.title}</span>
-                        <span className="mt-0.5 block truncate text-[11px] text-muted">
-                          {conversation.messageCount} message{conversation.messageCount === 1 ? "" : "s"} ·{" "}
-                          {timeAgo(conversation.updatedAt)}
-                        </span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">
+                        {conversation.title}
                       </span>
-                      <ArrowRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+                      <span className="hidden shrink-0 text-[11px] tabular-nums text-muted sm:inline">
+                        {conversation.messageCount} msg
+                      </span>
+                      <span className="shrink-0 text-[11px] text-muted">{timeAgo(conversation.updatedAt)}</span>
+                      <ArrowRight
+                        className="h-3.5 w-3.5 shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100"
+                        aria-hidden
+                      />
                     </button>
                   </li>
                 ))}
@@ -280,113 +271,72 @@ export default function HomePage() {
             )}
           </section>
 
-          <div className="space-y-6">
-            {/* ---------------- Projects ---------------- */}
-            <section>
-              <SectionHeader title="Projects" action="Open" onAction={() => router.push("/projects")} />
-              {loadingProjects ? (
-                <Skeleton className="h-20 w-full rounded-xl" />
-              ) : projects.length === 0 ? (
-                <EmptyState icon={<FolderOpen className="h-5 w-5" aria-hidden />}>
-                  No projects yet.
-                </EmptyState>
-              ) : (
-                <ul className="space-y-2">
-                  {projects.slice(0, 4).map((project) => (
-                    <li key={project.id}>
-                      <button
-                        type="button"
-                        onClick={() => router.push("/projects")}
-                        className="flex w-full items-center gap-2.5 rounded-xl border border-line bg-elevated px-3.5 py-2.5 text-left transition-colors hover:bg-surface"
-                      >
-                        <FolderOpen className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-fg">{project.name}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            {/* ---------------- Files ---------------- */}
-            <section>
-              <SectionHeader title="Files" />
-              {loadingFiles ? (
-                <Skeleton className="h-20 w-full rounded-xl" />
-              ) : files.length === 0 ? (
-                <EmptyState icon={<FileText className="h-5 w-5" aria-hidden />}>
-                  Attach a file in any chat and it appears here.
-                </EmptyState>
-              ) : (
-                <>
-                  <ul className="space-y-1.5">
-                    {files.slice(0, 4).map((file) => (
-                      <li
-                        key={file.id}
-                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px]"
-                      >
-                        <FileText className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate text-fg">{file.name}</span>
-                        <span className="shrink-0 text-[11px] text-muted">{formatBytes(file.size)}</span>
+          {hasAside ? (
+            <div className="space-y-7">
+              {/* ---------------- Projects ---------------- */}
+              {loadingProjects ? null : projects.length > 0 ? (
+                <section>
+                  <SectionHeader title="Projects" action="Open" onAction={() => router.push("/projects")} />
+                  <ul className="space-y-1">
+                    {projects.slice(0, 4).map((project) => (
+                      <li key={project.id}>
+                        <button
+                          type="button"
+                          onClick={() => router.push("/projects")}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{project.name}</span>
+                        </button>
                       </li>
                     ))}
                   </ul>
-                  {storage ? (
-                    <p className="mt-2 px-2 text-[11px] text-muted">
-                      {formatBytes(storage.usedBytes)} used across {storage.fileCount} file
-                      {storage.fileCount === 1 ? "" : "s"}
+                </section>
+              ) : null}
+
+              {/* ---------------- Files ---------------- */}
+              {files.length > 0 ? (
+                <section>
+                  <SectionHeader title="Files" />
+                  <ul className="space-y-1">
+                    {files.slice(0, 4).map((file) => (
+                      <li key={file.id} className="flex items-center gap-2.5 px-2 py-1.5 text-[13px]">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate text-fg">{file.name}</span>
+                        <span className="shrink-0 text-[11px] tabular-nums text-muted">{formatBytes(file.size)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {storage && storage.fileCount > files.slice(0, 4).length ? (
+                    <p className="mt-1.5 px-2 text-[11px] text-muted">
+                      {formatBytes(storage.usedBytes)} across {storage.fileCount} files
                     </p>
                   ) : null}
-                </>
-              )}
-            </section>
+                </section>
+              ) : null}
 
-            {/* ---------------- Saved prompts ---------------- */}
-            {prompts.length > 0 ? (
-              <section>
-                <SectionHeader title="Saved" />
-                <ul className="space-y-1.5">
-                  {prompts.slice(0, 4).map((prompt) => (
-                    <li key={prompt.id}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void startTask({
-                            id: prompt.id,
-                            label: prompt.title,
-                            hint: "",
-                            icon: null,
-                            prompt: prompt.body,
-                          })
-                        }
-                        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors hover:bg-surface"
-                      >
-                        <Zap className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate text-fg">{prompt.title}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
-
-            {/* ---------------- Usage ---------------- */}
-            {storage ? (
-              <Card className="p-4">
-                <p className="flex items-center gap-2 text-xs font-medium text-muted">
-                  <Clock className="h-3.5 w-3.5" aria-hidden />
-                  Activity
-                </p>
-                <p className="mt-2 text-[13px] text-fg">
-                  {conversations.length} recent conversation{conversations.length === 1 ? "" : "s"}
-                </p>
-                <p className="mt-0.5 text-[11px] text-muted">
-                  {formatBytes(storage.usedBytes)} stored · {projects.length} project
-                  {projects.length === 1 ? "" : "s"}
-                </p>
-              </Card>
-            ) : null}
-          </div>
+              {/* ---------------- Saved prompts ---------------- */}
+              {prompts.length > 0 ? (
+                <section>
+                  <SectionHeader title="Saved" action="All" onAction={() => router.push("/bookmarks")} />
+                  <ul className="space-y-1">
+                    {prompts.slice(0, 4).map((prompt) => (
+                      <li key={prompt.id}>
+                        <button
+                          type="button"
+                          onClick={() => void start(prompt.body)}
+                          className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface"
+                        >
+                          <Zap className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                          <span className="min-w-0 flex-1 truncate text-[13px] text-fg">{prompt.title}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
