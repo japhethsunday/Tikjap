@@ -23,12 +23,37 @@ export class SearchUnavailableError extends Error {
   }
 }
 
-export type SearchProviderId = "brave" | "tavily" | "serper" | "none";
+export type SearchProviderId = "brave" | "tavily" | "serper" | "google" | "none";
+
+/**
+ * Reads the first non-empty of several names.
+ *
+ * An earlier iteration of this feature used BRAVE_API_KEY and SERP_API_KEY;
+ * this one settled on BRAVE_SEARCH_API_KEY and SERPER_API_KEY. A deployment
+ * configured against either spelling should work — silently ignoring a key
+ * someone has already set is a miserable failure mode, because the tool just
+ * reports itself unconfigured and there is nothing to see in the logs.
+ */
+function readEnv(...names: string[]): string {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+export const BRAVE_KEY_NAMES = ["BRAVE_SEARCH_API_KEY", "BRAVE_API_KEY"];
+export const TAVILY_KEY_NAMES = ["TAVILY_API_KEY"];
+export const SERPER_KEY_NAMES = ["SERPER_API_KEY", "SERP_API_KEY"];
+export const GOOGLE_KEY_NAMES = ["GOOGLE_SEARCH_API_KEY"];
+export const GOOGLE_ENGINE_NAMES = ["GOOGLE_SEARCH_ENGINE_ID", "GOOGLE_CSE_ID"];
 
 export function configuredSearchProvider(): SearchProviderId {
-  if (process.env.BRAVE_SEARCH_API_KEY?.trim()) return "brave";
-  if (process.env.TAVILY_API_KEY?.trim()) return "tavily";
-  if (process.env.SERPER_API_KEY?.trim()) return "serper";
+  if (readEnv(...BRAVE_KEY_NAMES)) return "brave";
+  if (readEnv(...TAVILY_KEY_NAMES)) return "tavily";
+  if (readEnv(...SERPER_KEY_NAMES)) return "serper";
+  // Google's Custom Search needs both halves to be usable.
+  if (readEnv(...GOOGLE_KEY_NAMES) && readEnv(...GOOGLE_ENGINE_NAMES)) return "google";
   return "none";
 }
 
@@ -37,7 +62,7 @@ export function isSearchConfigured(): boolean {
 }
 
 const UNCONFIGURED_MESSAGE =
-  "Web search is not configured on this deployment. Set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY or SERPER_API_KEY to enable it.";
+  "Web search is not configured on this deployment. Set BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, SERPER_API_KEY, or GOOGLE_SEARCH_API_KEY with GOOGLE_SEARCH_ENGINE_ID.";
 
 interface BraveResponse {
   web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
@@ -47,6 +72,9 @@ interface TavilyResponse {
 }
 interface SerperResponse {
   organic?: Array<{ title?: string; link?: string; snippet?: string }>;
+}
+interface GoogleResponse {
+  items?: Array<{ title?: string; link?: string; snippet?: string }>;
 }
 
 function clean(text: string | undefined): string {
@@ -79,7 +107,7 @@ export async function webSearch(
         signal: options.signal,
         headers: {
           Accept: "application/json",
-          "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY!.trim(),
+          "X-Subscription-Token": readEnv(...BRAVE_KEY_NAMES),
         },
       });
       if (!response.ok) throw new SearchUnavailableError(`Search provider returned ${response.status}.`);
@@ -96,7 +124,7 @@ export async function webSearch(
         signal: options.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          api_key: process.env.TAVILY_API_KEY!.trim(),
+          api_key: readEnv(...TAVILY_KEY_NAMES),
           query: trimmed,
           max_results: count,
           search_depth: "basic",
@@ -110,18 +138,34 @@ export async function webSearch(
         .map((hit) => ({ title: clean(hit.title) || hit.url!, url: hit.url!, snippet: clean(hit.content) }));
     }
 
+    if (provider === "serper") {
     const response = await fetch("https://google.serper.dev/search", {
       method: "POST",
       signal: options.signal,
       headers: {
         "Content-Type": "application/json",
-        "X-API-KEY": process.env.SERPER_API_KEY!.trim(),
+        "X-API-KEY": readEnv(...SERPER_KEY_NAMES),
       },
       body: JSON.stringify({ q: trimmed, num: count }),
     });
     if (!response.ok) throw new SearchUnavailableError(`Search provider returned ${response.status}.`);
     const data = (await response.json()) as SerperResponse;
     return (data.organic ?? [])
+      .filter((hit) => hit.link)
+      .slice(0, count)
+      .map((hit) => ({ title: clean(hit.title) || hit.link!, url: hit.link!, snippet: clean(hit.snippet) }));
+    }
+
+    // Google Programmable Search. Capped at 10 by the API itself.
+    const url = new URL("https://www.googleapis.com/customsearch/v1");
+    url.searchParams.set("key", readEnv(...GOOGLE_KEY_NAMES));
+    url.searchParams.set("cx", readEnv(...GOOGLE_ENGINE_NAMES));
+    url.searchParams.set("q", trimmed);
+    url.searchParams.set("num", String(Math.min(count, 10)));
+    const response = await fetch(url, { signal: options.signal, headers: { Accept: "application/json" } });
+    if (!response.ok) throw new SearchUnavailableError(`Search provider returned ${response.status}.`);
+    const data = (await response.json()) as GoogleResponse;
+    return (data.items ?? [])
       .filter((hit) => hit.link)
       .slice(0, count)
       .map((hit) => ({ title: clean(hit.title) || hit.link!, url: hit.link!, snippet: clean(hit.snippet) }));

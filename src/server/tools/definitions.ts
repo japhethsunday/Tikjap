@@ -344,8 +344,17 @@ export const codeExecutionTool: ServerToolDefinition = {
 // ---------------------------------------------------------------------------
 // Image Generation / Understanding  (one of the four headline tools)
 // ---------------------------------------------------------------------------
-const IMAGE_ENDPOINT = process.env.IMAGE_GATEWAY_URL?.trim();
-const IMAGE_MODEL = process.env.IMAGE_GATEWAY_MODEL?.trim() || "black-forest-labs/flux.1-schnell";
+function firstEnv(...names: string[]): string {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+export const IMAGE_URL_NAMES = ["IMAGE_GATEWAY_URL", "IMAGE_API_URL", "IMAGE_GENERATION_URL"];
+const IMAGE_ENDPOINT = firstEnv(...IMAGE_URL_NAMES);
+const IMAGE_MODEL = firstEnv("IMAGE_GATEWAY_MODEL", "IMAGE_MODEL") || "black-forest-labs/flux.1-schnell";
 
 export const imageGenerationTool: ServerToolDefinition = {
   id: "image_generation",

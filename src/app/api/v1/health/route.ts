@@ -1,6 +1,14 @@
 import { withHandler } from "@/server/handler";
 import { createServiceClient } from "@/server/supabase";
-import { configuredSearchProvider } from "@/server/tools/search";
+import {
+  BRAVE_KEY_NAMES,
+  GOOGLE_ENGINE_NAMES,
+  GOOGLE_KEY_NAMES,
+  SERPER_KEY_NAMES,
+  TAVILY_KEY_NAMES,
+  configuredSearchProvider,
+} from "@/server/tools/search";
+import { IMAGE_URL_NAMES } from "@/server/tools/definitions";
 import { availableTools } from "@/server/tools";
 
 /**
@@ -22,7 +30,7 @@ export async function GET() {
   return withHandler(async () => {
     const inference = Boolean((process.env.AI_GATEWAY_API_KEY ?? process.env.NVIDIA_API_KEY ?? "").trim());
     const search = configuredSearchProvider() !== "none";
-    const images = Boolean(process.env.IMAGE_GATEWAY_URL?.trim()) && inference;
+    const images = IMAGE_URL_NAMES.some((name) => process.env[name]?.trim()) && inference;
     const scheduler = Boolean(process.env.CRON_SECRET?.trim());
 
     // A cheap, real query — head-only count against a table that always exists.
@@ -40,6 +48,23 @@ export async function GET() {
 
     const tools = availableTools().map((tool) => tool.id).sort();
 
+    // Which recognised variable names are actually populated. Names only, never
+    // values — this exists because a key set under a name the code does not
+    // read looks identical to no key at all, which is very hard to diagnose.
+    const candidates = [
+      "AI_GATEWAY_API_KEY",
+      "NVIDIA_API_KEY",
+      ...BRAVE_KEY_NAMES,
+      ...TAVILY_KEY_NAMES,
+      ...SERPER_KEY_NAMES,
+      ...GOOGLE_KEY_NAMES,
+      ...GOOGLE_ENGINE_NAMES,
+      ...IMAGE_URL_NAMES,
+      "CRON_SECRET",
+      "NEXT_PUBLIC_APP_MODE",
+    ];
+    const configured = candidates.filter((name) => Boolean(process.env[name]?.trim()));
+
     return {
       health: {
         ok: database && inference,
@@ -51,6 +76,8 @@ export async function GET() {
         scheduler,
         // Which capabilities this deployment can actually run right now.
         tools,
+        /** Recognised env var names that are set. Names only, no values. */
+        configured,
       },
     };
   });
