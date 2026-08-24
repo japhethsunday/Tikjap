@@ -14,7 +14,7 @@ import {
   Search,
   Zap,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, isValidHttpUrl } from "@/lib/utils";
 import type { ToolCallEvent } from "@/lib/types";
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
@@ -49,7 +49,14 @@ function hostOf(url: string): string {
 function ToolResult({ call }: { call: ToolCallEvent }) {
   const data = call.data ?? {};
 
-  if (call.toolId === "image_generation" && typeof data.image === "string") {
+  if (
+    call.toolId === "image_generation" &&
+    typeof data.image === "string" &&
+    // Only our own base64 payload or a plain http(s) URL. Anything else (a
+    // javascript: or data:text/html value from a misbehaving provider) is
+    // dropped rather than handed to the DOM.
+    (data.image.startsWith("data:image/") || isValidHttpUrl(data.image))
+  ) {
     return (
       // The payload is a data: URI or provider URL produced by our own backend.
       // eslint-disable-next-line @next/next/no-img-element
@@ -85,10 +92,11 @@ function ToolResult({ call }: { call: ToolCallEvent }) {
     );
   }
 
-  if (call.sources?.length) {
+  const safeSources = call.sources?.filter((source) => isValidHttpUrl(source.url));
+  if (safeSources?.length) {
     return (
       <ul className="mt-2 space-y-1">
-        {call.sources.slice(0, 8).map((source) => (
+        {safeSources.slice(0, 8).map((source) => (
           <li key={source.url} className="truncate text-xs">
             <a
               href={source.url}
@@ -115,6 +123,7 @@ function ToolRow({ call }: { call: ToolCallEvent }) {
   const running = call.status === "running";
   const failed = call.status === "failed";
   const hasDetail = Boolean(call.data || call.sources?.length);
+
 
   return (
     <div className="rounded-lg border border-line bg-surface/50">

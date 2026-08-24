@@ -2,7 +2,8 @@ import { createServerClient as createSSRServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, requireSupabaseConfig } from "@/lib/env";
+import { SUPABASE_URL } from "@/lib/env";
+import { SUPABASE_SERVICE_ROLE_KEY, requireSupabaseConfig } from "./env";
 
 /**
  * SSR client bound to the current request's cookies. Use inside route handlers

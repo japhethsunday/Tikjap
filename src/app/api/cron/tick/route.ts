@@ -3,11 +3,27 @@ import { withHandler } from "@/server/handler";
 import { dueSchedules, markScheduleRan } from "@/server/store";
 import { runScheduledPrompt } from "@/server/chat";
 import { HttpError } from "@/server/errors";
+import { timingSafeEqual } from "node:crypto";
+
+/** Constant-time comparison so the secret cannot be recovered byte by byte. */
+function timingSafeEqualString(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
 
 export async function GET(request: NextRequest) {
   return withHandler(async () => {
-    const secret = process.env.CRON_SECRET;
-    if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) {
+    // Fail closed. This endpoint runs scheduled prompts on behalf of every
+    // user — it spends inference budget and writes into their conversations —
+    // so an unset CRON_SECRET must disable it, not disable the check.
+    const secret = process.env.CRON_SECRET?.trim();
+    if (!secret) {
+      throw new HttpError(503, "unavailable", "Scheduled runs are not configured.");
+    }
+    const provided = request.headers.get("authorization") ?? "";
+    if (!timingSafeEqualString(provided, `Bearer ${secret}`)) {
       throw new HttpError(401, "unauthorized", "Invalid cron secret.");
     }
     const due = await dueSchedules(20);
