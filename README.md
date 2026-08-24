@@ -97,6 +97,18 @@ server/              demo backend: db store, auth, chat, files, usage, seed
 proxy.ts             route protection (Next.js proxy convention)
 ```
 
+## 🌍 Regions
+
+`vercel.json` pins functions to `dub1` (Dublin) because the Supabase project
+lives in `eu-west-1`. Left unset, Vercel serves from `iad1` (Washington DC) and
+every database query crosses the Atlantic — roughly 70-90ms each way, which a
+chat turn pays a dozen times over before any inference starts.
+
+If the Supabase project ever moves, move this with it. (The rationale lives here
+rather than in `vercel.json`: that file is validated against a strict schema and
+rejects unknown keys, including a `"//"` comment — a deployment fails before the
+build even starts.)
+
 ## 🔒 Security
 
 - Passwords hashed with `scrypt` + per-user salt; timing-safe comparison
