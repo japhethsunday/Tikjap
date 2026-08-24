@@ -1,18 +1,30 @@
 "use client";
 
-import { useMemo } from "react";
-import { Loader2, CheckCircle, AlertCircle, Search, FileText, Globe, Database, Code, Image as ImageIcon, Zap } from "lucide-react";
+import { useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle,
+  ChevronDown,
+  Code,
+  Database,
+  FileText,
+  Globe,
+  Image as ImageIcon,
+  Loader2,
+  Search,
+  Zap,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ToolProgress, ToolSource } from "@/lib/tools/types";
+import type { ToolCallEvent } from "@/lib/types";
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
-  web_search: <Search className="h-4 w-4" aria-hidden />,
-  file_analysis: <FileText className="h-4 w-4" aria-hidden />,
-  url_analysis: <Globe className="h-4 w-4" aria-hidden />,
-  data_analysis: <Database className="h-4 w-4" aria-hidden />,
-  code_execution: <Code className="h-4 w-4" aria-hidden />,
-  image_generation: <ImageIcon className="h-4 w-4" aria-hidden />,
-  deep_research: <Zap className="h-4 w-4" aria-hidden />,
+  web_search: <Search className="h-3.5 w-3.5" aria-hidden />,
+  file_analysis: <FileText className="h-3.5 w-3.5" aria-hidden />,
+  url_analysis: <Globe className="h-3.5 w-3.5" aria-hidden />,
+  data_analysis: <Database className="h-3.5 w-3.5" aria-hidden />,
+  code_execution: <Code className="h-3.5 w-3.5" aria-hidden />,
+  image_generation: <ImageIcon className="h-3.5 w-3.5" aria-hidden />,
+  deep_research: <Zap className="h-3.5 w-3.5" aria-hidden />,
 };
 
 const TOOL_NAMES: Record<string, string> = {
@@ -25,123 +37,142 @@ const TOOL_NAMES: Record<string, string> = {
   deep_research: "Deep Research",
 };
 
-interface ToolActivityProps {
-  toolId: string;
-  progress: ToolProgress | null;
-  isRunning: boolean;
-  sources?: ToolSource[];
-  className?: string;
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
 }
 
-export function ToolActivity({ toolId, progress, isRunning, sources, className }: ToolActivityProps) {
-  const toolName = useMemo(() => TOOL_NAMES[toolId] ?? toolId, [toolId]);
-  const toolIcon = useMemo(() => TOOL_ICONS[toolId] ?? <Loader2 className="h-4 w-4" aria-hidden />, [toolId]);
+/** Renders the result payload appropriate to each tool. */
+function ToolResult({ call }: { call: ToolCallEvent }) {
+  const data = call.data ?? {};
 
-  if (!isRunning && !progress) return null;
+  if (call.toolId === "image_generation" && typeof data.image === "string") {
+    return (
+      // The payload is a data: URI or provider URL produced by our own backend.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={data.image}
+        alt={typeof data.prompt === "string" ? data.prompt : "Generated image"}
+        className="mt-2 max-h-96 w-auto rounded-lg border border-line"
+      />
+    );
+  }
+
+  if (call.toolId === "code_execution") {
+    const logs = Array.isArray(data.logs) ? (data.logs as string[]) : [];
+    const output = [logs.join("\n"), typeof data.error === "string" ? `Error: ${data.error}` : ""]
+      .filter(Boolean)
+      .join("\n");
+    const value = typeof data.result === "string" ? data.result : "";
+    if (!output && !value) return null;
+    return (
+      <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-line bg-surface p-3 text-xs leading-relaxed">
+        {output ? `${output}\n` : ""}
+        {value ? `⇒ ${value}` : ""}
+      </pre>
+    );
+  }
+
+  if (call.toolId === "data_analysis" && typeof data.rowCount === "number") {
+    return (
+      <p className="mt-2 text-xs text-muted">
+        Profiled {data.rowCount.toLocaleString()} rows × {String(data.columnCount ?? "?")} columns
+        {typeof data.name === "string" ? ` from ${data.name}` : ""}.
+      </p>
+    );
+  }
+
+  if (call.sources?.length) {
+    return (
+      <ul className="mt-2 space-y-1">
+        {call.sources.slice(0, 8).map((source) => (
+          <li key={source.url} className="truncate text-xs">
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              className="text-muted underline-offset-2 hover:text-fg hover:underline"
+            >
+              {source.title || hostOf(source.url)}
+              <span className="ml-1 text-muted/70">({hostOf(source.url)})</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return null;
+}
+
+function ToolRow({ call }: { call: ToolCallEvent }) {
+  const [open, setOpen] = useState(false);
+  const name = TOOL_NAMES[call.toolId] ?? call.toolId;
+  const icon = TOOL_ICONS[call.toolId] ?? <Zap className="h-3.5 w-3.5" aria-hidden />;
+  const running = call.status === "running";
+  const failed = call.status === "failed";
+  const hasDetail = Boolean(call.data || call.sources?.length);
 
   return (
-    <div className={cn("rounded-xl border border-line bg-surface p-3 text-sm", className)}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-muted">{toolIcon}</span>
-        <span className="font-medium text-fg">{toolName}</span>
-        {isRunning && (
-          <span className="ml-auto inline-flex items-center gap-1 text-xs text-accent">
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-            Running
-          </span>
+    <div className="rounded-lg border border-line bg-surface/50">
+      <button
+        type="button"
+        onClick={() => hasDetail && setOpen((value) => !value)}
+        aria-expanded={hasDetail ? open : undefined}
+        disabled={!hasDetail}
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 text-left text-xs",
+          hasDetail ? "cursor-pointer hover:bg-surface" : "cursor-default"
         )}
-        {!isRunning && progress?.progress === 100 && (
-          <span className="ml-auto inline-flex items-center gap-1 text-xs text-success">
-            <CheckCircle className="h-3 w-3" aria-hidden />
-            Completed
-          </span>
-        )}
-        {!isRunning && progress && progress.progress < 100 && progress.progress > 0 && (
-          <span className="ml-auto inline-flex items-center gap-1 text-xs text-danger">
-            <AlertCircle className="h-3 w-3" aria-hidden />
-            Failed
-          </span>
-        )}
-      </div>
+      >
+        <span className={cn("shrink-0", failed ? "text-red-500" : "text-muted")}>{icon}</span>
+        <span className="font-medium text-fg">{name}</span>
+        {call.message ? <span className="truncate text-muted">· {call.message}</span> : null}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          {typeof call.durationMs === "number" && !running ? (
+            <span className="text-muted/70">{(call.durationMs / 1000).toFixed(1)}s</span>
+          ) : null}
+          {running ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" aria-label="Running" />
+          ) : failed ? (
+            <AlertCircle className="h-3.5 w-3.5 text-red-500" aria-label="Failed" />
+          ) : (
+            <CheckCircle className="h-3.5 w-3.5 text-emerald-500" aria-label="Completed" />
+          )}
+          {hasDetail ? (
+            <ChevronDown className={cn("h-3.5 w-3.5 text-muted transition-transform", open && "rotate-180")} aria-hidden />
+          ) : null}
+        </span>
+      </button>
 
-      {progress && (
-        <>
-          <div className="mb-2 h-1.5 rounded-full bg-line overflow-hidden">
-            <div
-              className="h-full rounded-full bg-accent transition-all duration-300"
-              style={{ width: `${Math.min(100, Math.max(0, progress.progress))}%` }}
-              role="progressbar"
-              aria-valuenow={progress.progress}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            />
-          </div>
-          <p className="text-xs text-muted mb-2">{progress.message ?? progress.stage}</p>
-        </>
-      )}
+      {running && typeof call.progress === "number" ? (
+        <div className="mx-3 mb-2 h-0.5 overflow-hidden rounded bg-line">
+          <div
+            className="h-full bg-fg/40 transition-[width] duration-300"
+            style={{ width: `${Math.round(Math.min(Math.max(call.progress, 0), 1) * 100)}%` }}
+          />
+        </div>
+      ) : null}
 
-      {sources && sources.length > 0 && (
-        <details className="group">
-          <summary className="flex items-center gap-1.5 text-xs font-medium text-muted cursor-pointer">
-            <span>Sources ({sources.length})</span>
-            <span className="ml-auto text-accent">▼</span>
-          </summary>
-          <ul className="mt-2 space-y-1.5 pl-4 border-l border-line/50">
-            {sources.map((source) => (
-              <li key={source.url} className="text-xs text-muted">
-                <a
-                  href={source.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-fg underline"
-                >
-                  {source.title}
-                </a>
-                <p className="line-clamp-2">{source.snippet}</p>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      {open && hasDetail ? (
+        <div className="border-t border-line px-3 pb-3 pt-2">
+          <ToolResult call={call} />
+        </div>
+      ) : null}
     </div>
   );
 }
 
-interface MultiToolActivityProps {
-  activities: Array<{
-    toolId: string;
-    progress: ToolProgress | null;
-    isRunning: boolean;
-    sources?: ToolSource[];
-  }>;
-  className?: string;
-}
-
-export function MultiToolActivity({ activities, className }: MultiToolActivityProps) {
-  const runningActivities = activities.filter((a) => a.isRunning || (a.progress && a.progress.progress < 100));
-  const completedActivities = activities.filter((a) => !a.isRunning && a.progress && a.progress.progress === 100);
-
-  if (activities.length === 0) return null;
-
+/** The tool activity strip shown above an assistant message. */
+export function ToolActivity({ calls, className }: { calls?: ToolCallEvent[]; className?: string }) {
+  if (!calls?.length) return null;
   return (
-    <div className={cn("space-y-2", className)}>
-      {runningActivities.map((activity) => (
-        <ToolActivity
-          key={activity.toolId}
-          toolId={activity.toolId}
-          progress={activity.progress}
-          isRunning={activity.isRunning}
-          sources={activity.sources}
-        />
-      ))}
-      {completedActivities.map((activity) => (
-        <ToolActivity
-          key={activity.toolId}
-          toolId={activity.toolId}
-          progress={activity.progress}
-          isRunning={false}
-          sources={activity.sources}
-        />
+    <div className={cn("mb-3 space-y-1.5", className)}>
+      {calls.map((call) => (
+        <ToolRow key={call.id} call={call} />
       ))}
     </div>
   );

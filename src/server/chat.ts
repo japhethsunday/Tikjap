@@ -34,11 +34,12 @@ import { createServiceClient } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModel, defaultModel, getUpstream } from "./models";
 import { TIKJAP_IDENTITY_PROMPT } from "./identity";
-import { nimProvider } from "./providers/nim";
+import { complete, nimProvider } from "./providers/nim";
+import { orchestrate, type ToolCallRecord } from "./tools/orchestrator";
 import { ChatMessageInput, ProviderError, PROVIDER_DOWN_MESSAGE } from "./providers/types";
 import { assertWithinLimits, recordRequest, recordUsage } from "./usage";
 import { readFileContent } from "./files";
-import { titleFromContent, formatBytes } from "@/lib/utils";
+import { titleFromContent } from "@/lib/utils";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "@/lib/constants";
 import type {
   AIModel,
@@ -46,6 +47,7 @@ import type {
   MessageUsage,
   StreamChunk,
 } from "@/lib/types";
+import type { ToolPermission } from "@/lib/tools/types";
 
 export async function listConversations(userId: string, options: ListConversationsOptions = {}) {
   return storeListConversations(userId, options);
@@ -90,6 +92,8 @@ export interface GenerationParams {
   removeFromMessageId?: string;
   continueFromMessageId?: string;
   assistantId?: string;
+  /** Tool ids the user switched on in the composer for this turn. */
+  enabledTools?: ToolPermission[];
   signal?: AbortSignal;
 }
 
@@ -98,7 +102,16 @@ export interface GenerationResult {
   assistantMessageId: string;
 }
 
-const PLAN_OUTPUT_CAPS: Record<string, number> = { free: 1200, pro: 5000, team: 16000 };
+/**
+ * Output ceiling per plan, in tokens. Previously this clipped the fabricated
+ * demo text by character count; with real inference it belongs on the upstream
+ * request so the model stops rather than being truncated mid-sentence.
+ */
+const PLAN_OUTPUT_TOKEN_CAPS: Record<string, number> = { free: 800, pro: 4_000, team: 8_000 };
+
+function planOutputTokenCap(plan: string, modelCeiling: number): number {
+  return Math.min(modelCeiling, PLAN_OUTPUT_TOKEN_CAPS[plan] ?? PLAN_OUTPUT_TOKEN_CAPS.free);
+}
 
 export function startGeneration(params: GenerationParams): GenerationResult {
   const { user, conversationId, signal } = params;
@@ -224,6 +237,7 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         let fullText = "";
         let sentText = "";
         let stopRequested = false;
+        let toolCalls: ToolCallRecord[] = [];
 
         if (upstream && gatewayConfigured) {
           // Real inference path: route through the internal provider, streaming
@@ -242,6 +256,11 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           }
           if (contextInfo.parts.length) {
             providerMessages.push({ role: "system", content: contextInfo.parts.join("\n\n") });
+          }
+          if (csvSection) {
+            // Tabular attachments are summarized into the prompt so text-only
+            // tiers can still reason about them.
+            providerMessages.push({ role: "system", content: csvSection });
           }
           for (const message of history.slice(-16)) {
             if (message.role === "system" || !message.content.trim()) continue;
@@ -269,13 +288,66 @@ export function startGeneration(params: GenerationParams): GenerationResult {
             };
           }
 
+          // ---- Tool orchestration -------------------------------------
+          // User → Tikjap API → orchestrator → tool → tool result → AI answer.
+          // Runs before the answer stream so the model sees real observations.
+          if ((params.enabledTools?.length ?? 0) > 0 && model.capabilities.toolUse) {
+            const emitTool = (event: NonNullable<StreamChunk["tool"]>) => send({ type: "tool", tool: event });
+            try {
+              const orchestration = await orchestrate({
+                userId: user.id,
+                conversationId,
+                messageId: assistantMessageId,
+                prompt: promptText || priorContent,
+                history: providerMessages.filter(
+                  (message): message is { role: "user" | "assistant"; content: string } =>
+                    message.role !== "system" && typeof message.content === "string"
+                ),
+                enabledTools: params.enabledTools ?? [],
+                attachments: attachmentRefs,
+                upstreamModel: upstream.model,
+                signal: stopController.signal,
+                onToolStart: (call) =>
+                  emitTool({ id: call.id, toolId: call.toolId, input: call.input, status: "running" }),
+                onToolProgress: (callId, progress) =>
+                  emitTool({
+                    id: callId,
+                    toolId: "",
+                    status: "running",
+                    stage: progress.stage,
+                    progress: progress.progress,
+                    message: progress.message,
+                    sources: progress.sources,
+                  }),
+                onToolEnd: (record) =>
+                  emitTool({
+                    id: record.id,
+                    toolId: record.toolId,
+                    status: record.ok ? "completed" : "failed",
+                    progress: 1,
+                    data: record.data,
+                    sources: record.sources,
+                    durationMs: record.durationMs,
+                  }),
+              });
+              toolCalls = orchestration.calls;
+              providerMessages.push(...orchestration.observations);
+            } catch (error) {
+              // A broken orchestrator must never cost the user their answer.
+              console.error("[chat/tools]", String(error).slice(0, 200));
+            }
+          }
+
           try {
             let streamed = "";
             let deltaCount = 0;
             for await (const part of nimProvider.streamChat({
               model: upstream.model,
               messages: providerMessages,
-              maxTokens: Math.min(model.maxOutputTokens, upstream.maxTokens ?? 8_000),
+              maxTokens: planOutputTokenCap(
+                await getProfilePlan(user.id).catch(() => "free" as const),
+                Math.min(model.maxOutputTokens, upstream.maxTokens ?? 8_000)
+              ),
               temperature: upstream.temperature ?? 0.7,
               topP: upstream.topP ?? 0.95,
               thinking: upstream.thinking,
@@ -316,36 +388,17 @@ export function startGeneration(params: GenerationParams): GenerationResult {
             return;
           }
         } else {
-          // Reference backend — used only when no inference key is configured.
-          let continuation = buildDemoResponse(promptText, model, attachmentRefs, params.regenerateMessageId !== undefined, contextInfo.parts);
-          if (csvSection) continuation = `${continuation}\n\n${csvSection}`;
-
-          const plan = await getProfilePlan(user.id).catch(() => "free" as const);
-          const cap = PLAN_OUTPUT_CAPS[plan] ?? PLAN_OUTPUT_CAPS.free;
-          if (continuation.length > cap) {
-            continuation = `${continuation.slice(0, cap).replace(/\s+\S*$/, "")}\n\n*…truncated for your plan.*`;
-            send({ type: "notice", notice: "Output truncated to your plan's limit. Upgrade for longer replies." });
-          }
-
-          fullText = priorContent ? `${priorContent}\n\n${continuation}` : continuation;
-          const tokens = continuation.match(/\S+\s*/g) ?? [continuation];
-
-          let tokenCount = 0;
-          for (const token of tokens) {
-            if (stopController.signal.aborted) break;
-            if (!firstTokenAt) firstTokenAt = Date.now();
-            send({ type: "delta", content: token });
-            sentText += token;
-            await sleep(14 + (token.length % 9) * 2);
-            tokenCount += 1;
-            if (tokenCount % 40 === 0) {
-              const row = await getMessageRow(conversationId, assistantMessageId, db).catch(() => undefined);
-              if (row && row.status !== "streaming") {
-                stopRequested = true;
-                break;
-              }
-            }
-          }
+          // No inference gateway configured. Fabricating an answer here would
+          // be indistinguishable from a real one to the user, so fail loudly
+          // instead — a visible misconfiguration beats a convincing fake.
+          console.error("[chat] no inference gateway configured (AI_GATEWAY_API_KEY is unset)");
+          await updateMessage(assistantMessageId, { status: "error" }, db).catch(() => undefined);
+          send({
+            type: "error",
+            error:
+              "Tikjap's inference backend is not configured on this deployment. Set AI_GATEWAY_API_KEY to enable chat.",
+          });
+          return;
         }
 
         const latencyMs = Date.now() - startedAt;
@@ -354,7 +407,30 @@ export function startGeneration(params: GenerationParams): GenerationResult {
         const usage: MessageUsage = { inputTokens, outputTokens };
 
         if (!stopController.signal.aborted && !stopRequested) {
-          await updateMessage(assistantMessageId, { content: fullText, status: "complete", usage, latencyMs }, db);
+          await updateMessage(
+            assistantMessageId,
+            {
+              content: fullText,
+              status: "complete",
+              usage,
+              latencyMs,
+              // Persist a trimmed record: the full observation text is already
+              // reflected in the answer, so storing it would bloat every row.
+              ...(toolCalls.length
+                ? {
+                    toolCalls: toolCalls.map((call) => ({
+                      id: call.id,
+                      toolId: call.toolId,
+                      status: call.ok ? "completed" : "failed",
+                      data: call.data,
+                      sources: call.sources,
+                      durationMs: call.durationMs,
+                    })),
+                  }
+                : {}),
+            },
+            db
+          );
           await recordUsage(user.id, usage, params.regenerateMessageId ? 0 : 1);
           await recordRequest(user.id, model.id, usage, true);
           send({ type: "usage", usage });
@@ -542,7 +618,7 @@ export async function runComparison(
   return Promise.all(
     picked.map(async (model) => {
       const startedAt = Date.now();
-      const text = buildDemoResponse(trimmed, model, [], false, contextInfo.parts);
+      const text = await completeWithModel(model, trimmed, contextInfo.parts);
       return { modelId: model.id, modelName: model.name, content: text, latencyMs: Math.max(1, Date.now() - startedAt) };
     })
   );
@@ -577,7 +653,7 @@ export async function runScheduledPrompt(userId: string, promptId: string) {
     { role: "user", content: prompt.body, status: "complete", model: model.id },
     db
   );
-  const text = buildDemoResponse(prompt.body, model, [], false, contextInfo.parts);
+  const text = await completeWithModel(model, prompt.body, contextInfo.parts);
   const message = await insertMessage(
     conversation.id,
     { role: "assistant", content: text, status: "complete", model: model.id },
@@ -620,112 +696,8 @@ async function loadImageParts(userId: string, attachments: AttachmentRef[]): Pro
   return parts;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
-}
-
-function hashSeed(text: string): number {
-  let hash = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    hash = (hash << 5) - hash + text.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-function buildDemoResponse(
-  prompt: string,
-  model: AIModel,
-  attachments: AttachmentRef[],
-  isRegenerate: boolean,
-  contextParts: string[] = []
-): string {
-  const seed = hashSeed(prompt + model.id + (isRegenerate ? "-regen" : ""));
-  const topic = summarizeTopic(prompt);
-  const variations = [
-    `Here's a quick overview of **${topic}** and how I can help with it.`,
-    `Good question about *${topic}* — here's what I know.`,
-    `Let me break down **${topic}** into the parts that matter most.`,
-  ];
-  const intro = variations[seed % variations.length];
-
-  const contextBlock = contextParts.length
-    ? `${contextParts.map((part) => `> ${part.replace(/\n/g, "\n> ")}\n`).join("")}\n`
-    : "";
-
-  const bullets = [
-    "**Fast streaming** — responses appear token by token, so you can read as I write.",
-    "**Full markdown** — headings, lists, tables, code blocks, and quotes all render cleanly.",
-    "**Typed everywhere** — the frontend and backend share strict TypeScript contracts.",
-  ];
-
-  const codeSample = model.capabilities.toolUse
-    ? `async function answer(query: string) {
-  const result = await think(query);
-  return result.reply; // streamed to the UI
-}`
-    : `function hello(name: string): string {
-  return \`Hello, \${name}!\`;
-}
-
-console.log(hello("${topic.split(" ")[0]}"));`;
-
-  const lines: string[] = [];
-  if (contextBlock) {
-    lines.push(contextBlock.trimEnd());
-    lines.push("");
-  }
-  lines.push(`# ${capitalize(topic)}`);
-  lines.push("");
-  lines.push(intro);
-  lines.push("");
-
-  if (attachments.length > 0) {
-    lines.push("## Files analyzed");
-    lines.push("");
-    lines.push(`I looked at ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}:`);
-    lines.push("");
-    lines.push("| File | Size | Type |");
-    lines.push("| --- | --- | --- |");
-    for (const attachment of attachments) {
-      lines.push(`| ${escapePipe(attachment.name)} | ${formatBytes(attachment.size)} | ${attachment.mimeType || "file"} |`);
-    }
-    lines.push("");
-    lines.push(`Ask me follow-up questions about **${escapePipe(attachments[0].name)}** and I'll dig deeper into the details.`);
-    lines.push("");
-  }
-
-  lines.push("## What you get");
-  lines.push("");
-  for (const bullet of bullets) lines.push(`- ${bullet}`);
-  lines.push("");
-
-  lines.push("## Example");
-  lines.push("");
-  lines.push("```ts");
-  lines.push(codeSample);
-  lines.push("```");
-  lines.push("");
-
-  lines.push("## At a glance");
-  lines.push("");
-  lines.push(`| Property | Value |`);
-  lines.push(`| --- | --- |`);
-  lines.push(`| Model | ${model.name} |`);
-  lines.push(`| Context window | ${model.contextWindow.toLocaleString()} tokens |`);
-  lines.push(`| Streaming | ${model.capabilities.streaming ? "Yes" : "No"} |`);
-  lines.push(`| Documents | ${model.capabilities.files ? "Supported" : "Not supported"} |`);
-  lines.push("");
-
-  lines.push(`> This reply was produced by the reference backend bundled with this app${isRegenerate ? " after a regenerate request" : ""}.`);
-  lines.push("");
-  lines.push("Want me to expand any section, rewrite it differently, or turn this into a plan? Just say the word.");
-
-  return lines.join("\n");
 }
 
 function summarizeTopic(prompt: string): string {
@@ -734,10 +706,39 @@ function summarizeTopic(prompt: string): string {
   return words.length ? words.join(" ").toLowerCase() : "your question";
 }
 
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 function escapePipe(text: string): string {
   return text.replace(/\|/g, "\\|");
+}
+
+/**
+ * Runs a real completion for a Tikjap model tier, applying that tier's system
+ * contract. Used by model comparison and scheduled prompts, which need a whole
+ * answer rather than a stream.
+ */
+async function completeWithModel(model: AIModel, prompt: string, contextParts: string[]): Promise<string> {
+  const upstream = getUpstream(model.id);
+  const configured = Boolean((process.env.AI_GATEWAY_API_KEY ?? process.env.NVIDIA_API_KEY ?? "").trim());
+  if (!upstream || !configured) {
+    throw new HttpError(503, "unavailable", "Tikjap's inference backend is not configured on this deployment.");
+  }
+
+  const messages: ChatMessageInput[] = [
+    { role: "system", content: TIKJAP_IDENTITY_PROMPT },
+    { role: "system", content: upstream.system },
+  ];
+  if (contextParts.length) messages.push({ role: "system", content: contextParts.join("\n\n") });
+  messages.push({ role: "user", content: prompt });
+
+  try {
+    return await complete({
+      model: upstream.model,
+      messages,
+      maxTokens: Math.min(model.maxOutputTokens, upstream.maxTokens ?? 4_000),
+      temperature: upstream.temperature ?? 0.7,
+      topP: upstream.topP,
+    });
+  } catch (error) {
+    const providerError = error instanceof ProviderError ? error : undefined;
+    throw new HttpError(503, "unavailable", providerError?.userMessage ?? PROVIDER_DOWN_MESSAGE);
+  }
 }

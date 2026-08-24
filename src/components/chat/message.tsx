@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/field";
 import { api } from "@/lib/api";
 import { cn, formatTime } from "@/lib/utils";
 import type { ChatMessage } from "@/lib/types";
+import { ToolActivity } from "@/components/tools/tool-activity";
 
 function AttachmentList({ message }: { message: ChatMessage }) {
   const attachments = message.attachments ?? [];
@@ -159,6 +160,7 @@ function AssistantMessage({
             <span className="mb-1 block text-[11px] font-semibold tracking-wide text-fg">
               {message.model ? MODEL_DISPLAY_NAMES[message.model] ?? "Tikjap AI" : "Tikjap AI"}
             </span>
+            <ToolActivity calls={message.toolCalls} />
           <div className={cn("rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-2.5", isError && "border-danger/25 bg-danger/5")}>
             {isError ? (
               <div className="space-y-2">

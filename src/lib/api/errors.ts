@@ -10,6 +10,7 @@ export type ApiErrorCode =
   | "file_too_large"
   | "internal"
   | "network"
+  | "unavailable"
   | "stream_error";
 
 export interface ApiErrorBody {

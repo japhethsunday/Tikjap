@@ -96,6 +96,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
     modelId: effectiveModelId,
     streamingEnabled: preferences?.preferences.streamingEnabled ?? true,
     assistantId,
+    enabledTools,
   });
 
   const streamingModelName = chat.isStreaming
@@ -355,6 +356,7 @@ export function ChatView({ conversationId }: { conversationId?: string }) {
           setModelId(id);
         }}
         enabledTools={enabledTools}
+        toolAvailability={modelsData?.tools}
         onToolsChange={setEnabledTools}
       />
 

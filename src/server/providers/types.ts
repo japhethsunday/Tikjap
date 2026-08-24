@@ -66,3 +66,36 @@ export interface AIProvider {
   readonly id: string;
   streamChat(request: UpstreamRequest): AsyncGenerator<UpstreamDelta, void, unknown>;
 }
+
+/** OpenAI-style function tool exposed to the model during planning. */
+export interface UpstreamTool {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+/** A tool invocation the model asked for. */
+export interface UpstreamToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface UpstreamPlanRequest {
+  model: string;
+  messages: ChatMessageInput[];
+  tools: UpstreamTool[];
+  maxTokens: number;
+  temperature: number;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
+export interface UpstreamPlanResult {
+  toolCalls: UpstreamToolCall[];
+  /** Any prose the model emitted alongside (or instead of) tool calls. */
+  content: string;
+}

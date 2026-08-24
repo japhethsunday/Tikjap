@@ -43,6 +43,7 @@ export interface MessageRow {
   usage: MessageUsage | null;
   bookmarked?: boolean;
   latency_ms?: number | null;
+  tool_calls?: unknown;
   created_at: string;
 }
 
@@ -215,6 +216,7 @@ function messageToChatMessage(row: MessageRow): ChatMessage {
     usage: row.usage ?? undefined,
     bookmarked: row.bookmarked ?? false,
     latencyMs: row.latency_ms ?? undefined,
+    toolCalls: Array.isArray(row.tool_calls) ? (row.tool_calls as ChatMessage["toolCalls"]) : undefined,
     createdAt: iso(row.created_at),
   };
 }
@@ -591,7 +593,14 @@ export async function insertMessage(
 
 export async function updateMessage(
   messageId: string,
-  patch: { content?: string; status?: MessageRow["status"]; usage?: MessageUsage; latencyMs?: number; bookmarked?: boolean },
+  patch: {
+    content?: string;
+    status?: MessageRow["status"];
+    usage?: MessageUsage;
+    latencyMs?: number;
+    bookmarked?: boolean;
+    toolCalls?: unknown[];
+  },
   db: Db = createServiceClient()
 ): Promise<void> {
   const update: Record<string, unknown> = {};
@@ -599,6 +608,7 @@ export async function updateMessage(
   if (patch.status !== undefined) update.status = patch.status;
   if (patch.usage !== undefined) update.usage = patch.usage;
   if (patch.latencyMs !== undefined) update.latency_ms = Math.round(patch.latencyMs);
+  if (patch.toolCalls !== undefined) update.tool_calls = patch.toolCalls;
   if (patch.bookmarked !== undefined) update.bookmarked = patch.bookmarked;
   if (!Object.keys(update).length) return;
   const { error } = await db.from("messages").update(update).eq("id", messageId);

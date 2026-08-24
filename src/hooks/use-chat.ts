@@ -39,6 +39,8 @@ export interface UseChatOptions {
   modelId: string;
   streamingEnabled: boolean;
   assistantId?: string;
+  /** Tool ids currently switched on in the composer. */
+  enabledTools?: string[];
 }
 
 interface StreamRequest {
@@ -67,7 +69,14 @@ export interface UseChatResult {
   stop: () => void;
 }
 
-export function useChat({ conversationId, messages, modelId, streamingEnabled, assistantId }: UseChatOptions): UseChatResult {
+export function useChat({
+  conversationId,
+  messages,
+  modelId,
+  streamingEnabled,
+  assistantId,
+  enabledTools,
+}: UseChatOptions): UseChatResult {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<ChatMessage[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -179,6 +188,7 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
             continueMessageId: request.continueFromMessageId,
             removeFromMessageId: request.removeFromMessageId,
             assistantId,
+            tools: enabledTools?.length ? enabledTools : undefined,
           },
           { signal: controller.signal }
         );
@@ -242,6 +252,21 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
           setPending((current) =>
             current.map((m) => (m.id === streamAssistantId ? { ...m, usage: chunk.usage } : m))
           );
+        } else if (chunk.type === "tool" && chunk.tool) {
+          const event = chunk.tool;
+          setPending((current) =>
+            current.map((m) => {
+              if (m.id !== streamAssistantId) return m;
+              const existing = m.toolCalls ?? [];
+              const index = existing.findIndex((call) => call.id === event.id);
+              if (index === -1) return { ...m, toolCalls: [...existing, event] };
+              // Progress events carry no toolId; merge so the label survives.
+              const merged = { ...existing[index], ...event, toolId: event.toolId || existing[index].toolId };
+              const next = [...existing];
+              next[index] = merged;
+              return { ...m, toolCalls: next };
+            })
+          );
         } else if (chunk.type === "context" && chunk.context) {
           setContextStats(chunk.context);
         } else if (chunk.type === "notice" && chunk.notice) {
@@ -270,7 +295,17 @@ export function useChat({ conversationId, messages, modelId, streamingEnabled, a
         }
       }
     },
-    [conversationId, modelId, streamingEnabled, assistantId, invalidate, showNotice, pending, messages]
+    [
+      conversationId,
+      modelId,
+      streamingEnabled,
+      assistantId,
+      enabledTools,
+      invalidate,
+      showNotice,
+      pending,
+      messages,
+    ]
   );
 
   const send = useCallback(

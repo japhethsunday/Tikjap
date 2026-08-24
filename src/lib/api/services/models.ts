@@ -1,9 +1,9 @@
 import type { ApiClient } from "../client";
-import type { AIModel } from "../../types";
+import type { ToolAvailability, AIModel } from "../../types";
 
 export function createModelsService(client: ApiClient) {
   return {
-    list(): Promise<{ models: AIModel[] }> {
+    list(): Promise<{ models: AIModel[]; tools?: ToolAvailability[] }> {
       return client.get("/models");
     },
   };

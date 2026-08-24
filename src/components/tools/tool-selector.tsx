@@ -5,6 +5,7 @@ import { Check, Search, FileText, Globe, Database, Code, Image as ImageIcon, Zap
 import { cn } from "@/lib/utils";
 import { Dropdown } from "@/components/ui/overlays";
 import type { ToolPermission } from "@/lib/tools/types";
+import type { ToolAvailability } from "@/lib/types";
 
 const TOOL_CONFIG: Array<{
   id: ToolPermission;
@@ -104,33 +105,47 @@ interface ToolToggleProps {
   enabledTools: ToolPermission[];
   onToggle: (toolId: ToolPermission, enabled: boolean) => void;
   disabled?: boolean;
+  /** Backend availability per tool; missing entries are treated as available. */
+  availability?: ToolAvailability[];
   className?: string;
 }
 
-export function ToolToggles({ enabledTools, onToggle, disabled, className }: ToolToggleProps) {
+export function ToolToggles({ enabledTools, onToggle, disabled, availability, className }: ToolToggleProps) {
   const enabledSet = useMemo(() => new Set(enabledTools), [enabledTools]);
+  const unavailable = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const entry of availability ?? []) {
+      if (!entry.available) map.set(entry.id, entry.unavailableReason ?? `${entry.name} is not configured.`);
+    }
+    return map;
+  }, [availability]);
 
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      {TOOL_CONFIG.map((tool) => (
+      {TOOL_CONFIG.map((tool) => {
+        const blockedReason = unavailable.get(tool.id);
+        const isDisabled = disabled || Boolean(blockedReason);
+        return (
         <button
           key={tool.id}
           type="button"
-          onClick={() => !disabled && onToggle(tool.id, !enabledSet.has(tool.id))}
-          disabled={disabled}
+          onClick={() => !isDisabled && onToggle(tool.id, !enabledSet.has(tool.id))}
+          disabled={isDisabled}
+          title={blockedReason ?? tool.description}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
             enabledSet.has(tool.id)
               ? "border-primary bg-primary/10 text-primary"
               : "border-line text-muted hover:border-fg hover:bg-surface",
-            disabled && "opacity-50 cursor-not-allowed"
+            isDisabled && "opacity-50 cursor-not-allowed"
           )}
           aria-pressed={enabledSet.has(tool.id)}
         >
           <span className="flex-shrink-0">{tool.icon}</span>
           <span>{tool.name}</span>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }

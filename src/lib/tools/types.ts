@@ -14,7 +14,6 @@ export interface ToolDefinition<
   id: string;
   name: string;
   description: string;
-  icon: React.ReactNode;
   requiredPermissions: ToolPermission[];
   inputSchema: {
     type: "object";

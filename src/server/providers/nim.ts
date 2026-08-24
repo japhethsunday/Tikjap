@@ -1,9 +1,13 @@
 import {
   AIProvider,
+  ChatMessageInput,
   ProviderError,
   PROVIDER_DOWN_MESSAGE,
   UpstreamDelta,
+  UpstreamPlanRequest,
+  UpstreamPlanResult,
   UpstreamRequest,
+  UpstreamToolCall,
 } from "./types";
 
 /**
@@ -131,3 +135,145 @@ export const nimProvider: AIProvider = {
     }
   },
 };
+
+/**
+ * Non-streaming completion used for the tool-planning step.
+ *
+ * Planning is a single short call whose only interesting output is the
+ * `tool_calls` array, so streaming it would add complexity for no benefit. The
+ * model may legitimately answer without calling anything — that is a valid plan
+ * meaning "no tool needed", not an error.
+ */
+export async function planWithTools(request: UpstreamPlanRequest): Promise<UpstreamPlanResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), request.timeoutMs ?? 45_000);
+  const onAbort = () => controller.abort();
+  request.signal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${apiKey()}`,
+        },
+        body: JSON.stringify({
+          model: request.model,
+          messages: request.messages,
+          tools: request.tools,
+          tool_choice: "auto",
+          temperature: request.temperature,
+          max_tokens: request.maxTokens,
+          stream: false,
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw mapTransportError(error);
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw mapHttpError(response.status, text);
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{
+        message?: {
+          content?: string | null;
+          tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
+        };
+      }>;
+    };
+
+    const message = payload.choices?.[0]?.message;
+    const toolCalls: UpstreamToolCall[] = [];
+
+    for (const call of message?.tool_calls ?? []) {
+      const name = call.function?.name;
+      if (!name) continue;
+      let args: Record<string, unknown> = {};
+      // Models routinely emit slightly malformed argument JSON. A bad payload
+      // should degrade to "call the tool with no arguments" rather than kill
+      // the turn, since most tools can fall back to conversation context.
+      try {
+        const parsed: unknown = JSON.parse(call.function?.arguments || "{}");
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          args = parsed as Record<string, unknown>;
+        }
+      } catch {
+        args = {};
+      }
+      toolCalls.push({ id: call.id || `call_${toolCalls.length}`, name, arguments: args });
+    }
+
+    return { toolCalls, content: message?.content ?? "" };
+  } finally {
+    clearTimeout(timeout);
+    request.signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+/**
+ * Single-shot completion. Used by features that need a whole answer rather than
+ * a stream — model comparison and scheduled prompts — so they run real
+ * inference instead of fabricating text.
+ */
+export async function complete(request: {
+  model: string;
+  messages: ChatMessageInput[];
+  maxTokens: number;
+  temperature: number;
+  topP?: number;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), request.timeoutMs ?? 90_000);
+  const onAbort = () => controller.abort();
+  request.signal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${apiKey()}`,
+        },
+        body: JSON.stringify({
+          model: request.model,
+          messages: request.messages,
+          temperature: request.temperature,
+          top_p: request.topP ?? 0.95,
+          max_tokens: request.maxTokens,
+          stream: false,
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw mapTransportError(error);
+    }
+
+    if (!response.ok) {
+      throw mapHttpError(response.status, await response.text().catch(() => ""));
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string | null } }>;
+    };
+    const content = payload.choices?.[0]?.message?.content ?? "";
+    if (!content.trim()) {
+      throw new ProviderError("unavailable", 502, PROVIDER_DOWN_MESSAGE, "empty completion");
+    }
+    return content;
+  } finally {
+    clearTimeout(timeout);
+    request.signal?.removeEventListener("abort", onAbort);
+  }
+}

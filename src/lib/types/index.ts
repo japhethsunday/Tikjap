@@ -62,6 +62,8 @@ export interface ChatMessage {
   usage?: MessageUsage;
   bookmarked?: boolean;
   latencyMs?: number;
+  /** Tool activity recorded by the orchestrator for this message. */
+  toolCalls?: ToolCallEvent[];
   createdAt: string;
 }
 
@@ -170,6 +172,8 @@ export interface ChatRequest {
   continueMessageId?: string;
   removeFromMessageId?: string;
   assistantId?: string;
+  /** Tool ids enabled in the composer for this turn. */
+  tools?: string[];
 }
 
 export interface Project {
@@ -289,8 +293,31 @@ export interface ContextStats {
   estimatedTokens: number;
 }
 
+/** A tool invocation surfaced to the client while a turn is being generated. */
+/** Whether a tool's backend is configured on this deployment. */
+export interface ToolAvailability {
+  id: string;
+  name: string;
+  description: string;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export interface ToolCallEvent {
+  id: string;
+  toolId: string;
+  input?: Record<string, unknown>;
+  status: "running" | "completed" | "failed";
+  stage?: string;
+  progress?: number;
+  message?: string;
+  data?: Record<string, unknown>;
+  sources?: Array<{ title: string; url: string; snippet: string }>;
+  durationMs?: number;
+}
+
 export interface StreamChunk {
-  type: "delta" | "done" | "error" | "usage" | "context" | "notice";
+  type: "delta" | "done" | "error" | "usage" | "context" | "notice" | "tool";
   content?: string;
   messageId?: string;
   usage?: MessageUsage;
@@ -300,6 +327,7 @@ export interface StreamChunk {
   context?: ContextStats;
   notice?: string;
   latencyMs?: number;
+  tool?: ToolCallEvent;
 }
 
 export interface PublicInfo {

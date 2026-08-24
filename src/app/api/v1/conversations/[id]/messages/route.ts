@@ -4,7 +4,9 @@ import { HttpError } from "@/server/errors";
 import { withHandler } from "@/server/handler";
 import { rateLimit } from "@/server/rate-limit";
 import { listMessages, startGeneration } from "@/server/chat";
+import { getServerTool } from "@/server/tools";
 import type { ChatRequest } from "@/lib/types";
+import type { ToolPermission } from "@/lib/tools/types";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -39,6 +41,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
       continueFromMessageId: body.continue ? body.continueMessageId : undefined,
       removeFromMessageId: body.removeFromMessageId,
       assistantId: body.assistantId,
+      // Validate against the server registry: the client sends ids, never
+      // definitions, so an unknown or spoofed id is dropped rather than trusted.
+      enabledTools: Array.isArray(body.tools)
+        ? (body.tools
+            .filter((id): id is string => typeof id === "string")
+            .filter((id) => getServerTool(id) !== undefined)
+            .slice(0, 7) as ToolPermission[])
+        : undefined,
       signal: request.signal,
     });
     return new NextResponse(generation.stream, {
