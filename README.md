@@ -24,13 +24,24 @@ Streaming chat, multiple models, file attachments, conversation history, and an 
 ## 🚀 Quick start
 
 ```bash
-npm install
+chmod +x setup.sh
+./setup.sh
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+`setup.sh` checks for Node 20+, installs dependencies, creates `.env.local` from
+`.env.example` if it is missing, and runs the full verification suite. Pass
+`--quick` to skip verification and just get a working install.
 
-> Copy `.env.example` to `.env.local` and adjust as needed. Demo mode is the default.
+Prefer to do it by hand:
+
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). Demo mode is the default.
 
 **Demo accounts**
 
