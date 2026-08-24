@@ -173,7 +173,7 @@ export interface ChatRequest {
   removeFromMessageId?: string;
   assistantId?: string;
   /** Tool ids enabled in the composer for this turn. */
-  tools?: string[];
+  enabledTools?: string[];
 }
 
 export interface Project {

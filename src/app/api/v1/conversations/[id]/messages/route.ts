@@ -43,8 +43,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       assistantId: body.assistantId,
       // Validate against the server registry: the client sends ids, never
       // definitions, so an unknown or spoofed id is dropped rather than trusted.
-      enabledTools: Array.isArray(body.tools)
-        ? (body.tools
+      enabledTools: Array.isArray(body.enabledTools)
+        ? (body.enabledTools
             .filter((id): id is string => typeof id === "string")
             .filter((id) => getServerTool(id) !== undefined)
             .slice(0, 7) as ToolPermission[])

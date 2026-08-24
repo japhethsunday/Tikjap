@@ -188,7 +188,7 @@ export function useChat({
             continueMessageId: request.continueFromMessageId,
             removeFromMessageId: request.removeFromMessageId,
             assistantId,
-            tools: enabledTools?.length ? enabledTools : undefined,
+            enabledTools: enabledTools?.length ? enabledTools : undefined,
           },
           { signal: controller.signal }
         );

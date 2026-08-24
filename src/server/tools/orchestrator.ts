@@ -1,5 +1,5 @@
 import { planWithTools } from "../providers/nim";
-import type { ChatMessageInput, UpstreamTool } from "../providers/types";
+import type { ChatMessageInput, ToolDefinition } from "../providers/types";
 import { ProviderError } from "../providers/types";
 import {
   MAX_TOOL_CALLS_PER_TURN,
@@ -56,7 +56,7 @@ export interface OrchestrateParams {
   onToolEnd: (record: ToolCallRecord) => void;
 }
 
-function toUpstreamTool(id: ToolPermission): UpstreamTool | null {
+function toToolDefinition(id: ToolPermission): ToolDefinition | null {
   const tool = getServerTool(id);
   if (!tool) return null;
   return {
@@ -64,7 +64,7 @@ function toUpstreamTool(id: ToolPermission): UpstreamTool | null {
     function: {
       name: tool.id,
       description: tool.description,
-      parameters: tool.parameters as unknown as Record<string, unknown>,
+      parameters: tool.parameters,
     },
   };
 }
@@ -76,7 +76,7 @@ export async function orchestrate(params: OrchestrateParams): Promise<Orchestrat
   const enabled = params.enabledTools.filter((id) => isToolAvailable(id));
   if (enabled.length === 0) return empty;
 
-  const tools = enabled.map(toUpstreamTool).filter((tool): tool is UpstreamTool => tool !== null);
+  const tools = enabled.map(toToolDefinition).filter((tool): tool is ToolDefinition => tool !== null);
   if (tools.length === 0) return empty;
 
   const attachmentNote = params.attachments.length
