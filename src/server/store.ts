@@ -1693,21 +1693,62 @@ export async function revokeShare(userId: string, token: string): Promise<void> 
 export async function listProjectSources(userId: string, projectId: string) {
   await getProject(userId, projectId);
   const db = createServiceClient();
+
+  // content_length is a stored generated column added by a later migration.
+  // PostgREST cannot call length() in a select — it reads `length(content)` as
+  // an embedded resource and 500s — so the column does the work instead.
   const { data, error } = await db
     .from("project_sources")
-    .select("id, project_id, title, url, length(content), created_at")
+    .select("id, project_id, title, url, content_length, created_at")
     .eq("project_id", projectId)
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(100);
-  if (error) throw new Error(`Failed to list sources: ${error.message}`);
-  return ((data ?? []) as unknown as Array<{ id: string; project_id: string; title: string; url: string | null; length: number; created_at: string }>).map((s) => ({
-    id: s.id,
-    projectId: s.project_id,
-    title: s.title,
-    url: s.url ?? null,
-    chars: s.length ?? 0,
-    createdAt: iso(s.created_at),
+
+  if (!error) {
+    return ((data ?? []) as unknown as Array<{
+      id: string;
+      project_id: string;
+      title: string;
+      url: string | null;
+      content_length: number | null;
+      created_at: string;
+    }>).map((source) => ({
+      id: source.id,
+      projectId: source.project_id,
+      title: source.title,
+      url: source.url ?? null,
+      chars: source.content_length ?? 0,
+      createdAt: iso(source.created_at),
+    }));
+  }
+
+  // The column is missing, so this deployment is running ahead of its
+  // migration. Fall back to counting in JS rather than failing outright —
+  // heavier, but a project's sources are capped at 50.
+  const fallback = await db
+    .from("project_sources")
+    .select("id, project_id, title, url, content, created_at")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (fallback.error) throw new Error(`Failed to list sources: ${fallback.error.message}`);
+
+  return ((fallback.data ?? []) as unknown as Array<{
+    id: string;
+    project_id: string;
+    title: string;
+    url: string | null;
+    content: string | null;
+    created_at: string;
+  }>).map((source) => ({
+    id: source.id,
+    projectId: source.project_id,
+    title: source.title,
+    url: source.url ?? null,
+    chars: source.content?.length ?? 0,
+    createdAt: iso(source.created_at),
   }));
 }
 
