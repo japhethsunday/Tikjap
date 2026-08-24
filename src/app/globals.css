@@ -291,3 +291,18 @@ body {
     overflow: visible !important;
   }
 }
+
+/* Horizontal scroll without a visible scrollbar — used by the composer's tool
+   strip, which must scroll on narrow screens but should not show a bar under
+   the chips on desktop. The mask fades the trailing edge so a chip cut off by
+   the viewport reads as "there is more, scroll" rather than as a clipping bug. */
+.tk-scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+}
+.tk-scroll-x::-webkit-scrollbar {
+  display: none;
+}

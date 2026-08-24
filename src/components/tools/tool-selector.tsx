@@ -121,7 +121,9 @@ export function ToolToggles({ enabledTools, onToggle, disabled, availability, cl
   }, [availability]);
 
   return (
-    <div className={cn("flex flex-wrap gap-2", className)}>
+    // One row, no wrapping: the parent scrolls horizontally instead, so the
+    // composer's height does not depend on how many tools exist.
+    <div className={cn("flex w-max flex-nowrap items-center gap-1.5", className)}>
       {TOOL_CONFIG.map((tool) => {
         const blockedReason = unavailable.get(tool.id);
         const isDisabled = disabled || Boolean(blockedReason);
@@ -133,7 +135,7 @@ export function ToolToggles({ enabledTools, onToggle, disabled, availability, cl
           disabled={isDisabled}
           title={blockedReason ?? tool.description}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+            "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
             enabledSet.has(tool.id)
               ? "border-primary bg-primary/10 text-primary"
               : "border-line text-muted hover:border-fg hover:bg-surface",

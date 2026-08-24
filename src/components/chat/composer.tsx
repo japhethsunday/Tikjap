@@ -204,7 +204,14 @@ export function Composer({
           </div>
         ) : null}
 
-        <div className="flex items-end gap-2 p-2">
+        {/*
+          Two rows, not one. The tool chips are a wrapping flex row; sitting
+          them beside the textarea meant seven chips wrapped to one per line,
+          which stretched the composer vertically and squeezed the input down
+          to a sliver. The textarea now owns the full width on its own row and
+          the controls sit on a toolbar beneath it.
+        */}
+        <div className="px-3 pt-3">
           <input
             ref={fileInputRef}
             type="file"
@@ -218,16 +225,6 @@ export function Composer({
               event.target.value = "";
             }}
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled || isStreaming}
-            aria-label="Attach a file"
-            className="mb-0.5 rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Paperclip className="h-5 w-5" aria-hidden />
-          </button>
-
           <textarea
             ref={textareaRef}
             value={value}
@@ -240,10 +237,26 @@ export function Composer({
             placeholder={disabledReason ?? "Ask anything… Type / for saved prompts"}
             disabled={disabled}
             aria-label="Message"
-            className="max-h-50 min-h-[40px] flex-1 resize-none bg-transparent px-1 py-2 text-[15px] leading-relaxed text-fg placeholder:text-muted/70 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            className="block max-h-48 min-h-[44px] w-full resize-none bg-transparent text-[15px] leading-relaxed text-fg placeholder:text-muted/70 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           />
+        </div>
 
-          <div className="flex items-center gap-1.5 mb-0.5">
+        {/*
+          Toolbar. The chips scroll horizontally rather than wrapping, so the
+          composer keeps a fixed height however many tools a deployment has.
+        */}
+        <div className="flex items-center gap-2 px-2 pb-2 pt-1">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || isStreaming}
+            aria-label="Attach a file"
+            className="shrink-0 rounded-lg p-2 text-muted transition-colors hover:bg-surface hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Paperclip className="h-5 w-5" aria-hidden />
+          </button>
+
+          <div className="tk-scroll-x min-w-0 flex-1 py-0.5">
             <ToolToggles
               availability={toolAvailability}
               enabledTools={enabledTools}
@@ -255,6 +268,9 @@ export function Composer({
               }}
               disabled={disabled || isStreaming}
             />
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1.5">
             <Dropdown
               trigger={({ ref, "aria-expanded": expanded, toggle }) => (
                 <button
@@ -326,7 +342,7 @@ export function Composer({
             </Dropdown>
 
             {isStreaming ? (
-              <Button size="sm" variant="secondary" onClick={onStop} className="mb-0.5" aria-label="Stop generating">
+              <Button size="sm" variant="secondary" onClick={onStop} aria-label="Stop generating">
                 <Square className="h-4 w-4 fill-current" aria-hidden />
               </Button>
             ) : (
@@ -334,7 +350,7 @@ export function Composer({
                 size="sm"
                 onClick={submit}
                 disabled={!canSend}
-                className="mb-0.5 rounded-xl p-2.5"
+                className="rounded-xl p-2.5"
                 aria-label="Send message"
               >
                 <ArrowUp className="h-4 w-4" aria-hidden />
