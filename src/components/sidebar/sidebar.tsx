@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -223,10 +224,10 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             {NAV_ITEMS.map((item) => {
               const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
-                <button
+                <Link
                   key={item.href}
-                  type="button"
-                  onClick={() => go(item.href)}
+                  href={item.href}
+                  onClick={onClose}
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors",
@@ -235,19 +236,19 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                 >
                   <span className={cn("shrink-0", active ? "text-accent" : "text-muted")}>{item.icon}</span>
                   {item.label}
-                </button>
+                </Link>
               );
             })}
           </nav>
 
-          <button
-            type="button"
-            onClick={() => go("/chat")}
+          <Link
+            href="/chat"
+            onClick={onClose}
             className="group flex w-full items-center gap-2.5 rounded-xl bg-primary px-3.5 py-2.5 text-sm font-semibold text-primary-fg shadow-sm transition-all hover:shadow-md hover:brightness-110 active:scale-[0.99]"
           >
             <MessageSquarePlus className="h-4 w-4" aria-hidden />
             New chat
-          </button>
+          </Link>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
             <input
@@ -419,6 +420,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                       <li key={conversation.id}>
                         <a
                           href={`/chat/${conversation.id}`}
+                          onMouseEnter={() => router.prefetch(`/chat/${conversation.id}`)}
+                          onFocus={() => router.prefetch(`/chat/${conversation.id}`)}
                           onClick={(event) => {
                             event.preventDefault();
                             go(`/chat/${conversation.id}`);
@@ -467,6 +470,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   <li key={hit.messageId}>
                     <a
                       href={`/chat/${hit.conversationId}`}
+                      onMouseEnter={() => router.prefetch(`/chat/${hit.conversationId}`)}
                       onClick={(event) => {
                         event.preventDefault();
                         go(`/chat/${hit.conversationId}`);

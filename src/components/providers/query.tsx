@@ -9,7 +9,13 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 15_000,
+            // Home, the sidebar and the settings pages all mount the same
+            // handful of queries. At 15s a user bouncing between two pages
+            // refetched every one of them on each visit, which is what made
+            // navigation feel like loading rather than switching. Mutations
+            // invalidate the keys they affect, so staleness here is bounded by
+            // writes rather than by the clock.
+            staleTime: 120_000,
             retry: 1,
             refetchOnWindowFocus: false,
           },

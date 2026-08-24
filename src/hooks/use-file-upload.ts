@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { UploadedFile } from "@/lib/types";
 import { errorMessage } from "@/lib/api";
@@ -17,6 +18,7 @@ export interface PendingAttachment {
 export function useFileUpload({ onUploaded }: { onUploaded?: (attachment: PendingAttachment) => void } = {}) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const abortRefs = useRef(new Map<string, AbortController>());
+  const queryClient = useQueryClient();
 
   const update = useCallback((localId: string, patch: Partial<PendingAttachment>) => {
     setAttachments((current) => current.map((a) => (a.localId === localId ? { ...a, ...patch } : a)));
@@ -42,6 +44,12 @@ export function useFileUpload({ onUploaded }: { onUploaded?: (attachment: Pendin
           .then(({ file: uploaded }) => {
             const pending = { localId, file, progress: 100, status: "uploaded", uploaded } as PendingAttachment;
             setAttachments((current) => current.map((a) => (a.localId === localId ? pending : a)));
+            // An upload changes both the file list and the storage total. This
+            // hook is the only mutation in the app that did not invalidate what
+            // it wrote, which the old 15s staleTime hid -- the lists happened to
+            // refetch a moment later anyway.
+            void queryClient.invalidateQueries({ queryKey: ["files"] });
+            void queryClient.invalidateQueries({ queryKey: ["storage-usage"] });
             onUploaded?.(pending);
           })
           .catch((error: unknown) => {
@@ -54,7 +62,7 @@ export function useFileUpload({ onUploaded }: { onUploaded?: (attachment: Pendin
           .finally(() => abortRefs.current.delete(localId));
       }
     },
-    [onUploaded, update]
+    [onUploaded, update, queryClient]
   );
 
   const remove = useCallback((localId: string) => {
