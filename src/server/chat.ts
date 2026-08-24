@@ -33,7 +33,7 @@ import {
 import { createServiceClient } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getModel, defaultModel, getUpstream } from "./models";
-import { TIKJAP_IDENTITY_PROMPT } from "./identity";
+import { CODE_WORKSPACE_PROMPT, TIKJAP_IDENTITY_PROMPT } from "./identity";
 import { complete, nimProvider } from "./providers/nim";
 import { orchestrate, type ToolCallRecord } from "./tools/orchestrator";
 import { ChatMessageInput, ProviderError, PROVIDER_DOWN_MESSAGE } from "./providers/types";
@@ -261,6 +261,13 @@ export function startGeneration(params: GenerationParams): GenerationResult {
           ];
           if (upstream.system) {
             providerMessages.push({ role: "system", content: upstream.system });
+          }
+          // A project on the turn means the Code workspace, where the file and
+          // sandbox tools are unlocked. Say so: the tools alone are not enough,
+          // because the model answers from its priors about what a chat
+          // assistant can do unless it is told what it is holding.
+          if (params.projectId) {
+            providerMessages.push({ role: "system", content: CODE_WORKSPACE_PROMPT });
           }
           if (contextInfo.parts.length) {
             providerMessages.push({ role: "system", content: contextInfo.parts.join("\n\n") });
