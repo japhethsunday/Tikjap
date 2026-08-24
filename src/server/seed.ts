@@ -1,5 +1,5 @@
 import { createServiceClient } from "./supabase";
-import { isDemoMode } from "@/lib/env";
+import { isDemoMode, IS_PRODUCTION } from "@/lib/env";
 
 export const SEED_ACCOUNTS = [
   { email: "demo@tikjap.dev", password: "demo1234", name: "Demo User", role: "user" as const },
@@ -7,11 +7,23 @@ export const SEED_ACCOUNTS = [
 ];
 
 /**
- * Creates the demo accounts as real Supabase users. Only runs in demo mode.
+ * True only where handing out shared demo logins is acceptable: a non-production
+ * build explicitly running in demo mode.
+ *
+ * The mode flag alone is not enough. NEXT_PUBLIC_APP_MODE defaults to "demo",
+ * so a deployment that simply never set it would create a real Supabase user
+ * with the admin role and a password published by /api/v1/public/info. Requiring
+ * a non-production build as well means one missing environment variable cannot
+ * hand anyone administrator access.
+ */
+export const demoAccountsEnabled = isDemoMode && !IS_PRODUCTION;
+
+/**
+ * Creates the demo accounts as real Supabase users. Never runs in production.
  * The `on_auth_user_created` trigger creates each user's profile row.
  */
 export async function seedIfEmpty(): Promise<void> {
-  if (!isDemoMode) return;
+  if (!demoAccountsEnabled) return;
   const admin = createServiceClient();
   const { data } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const existing = new Set((data?.users ?? []).map((user) => user.email?.toLowerCase()));
